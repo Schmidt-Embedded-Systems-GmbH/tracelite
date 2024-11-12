@@ -1,0 +1,18 @@
+[package]
+name = "tracelite"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["enable"]
+enable = []
+
+[dependencies]
+tokio = { version = "*", features = ["sync", "rt", "time", "macros"] }
+log = { version = "*", features=["kv_std", "kv_serde"] }
+derive_setters = "*"
+fastrand = "*"
+micropb = "*"
+opentelemetry-micropb = { git = "https://github.com/Schmidt-Embedded-Systems-GmbH/opentelemetry-micropb.git" }
