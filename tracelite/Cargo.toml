@@ -16,4 +16,4 @@ log = { version = "*", features=["kv_std", "kv_serde"] }
 derive_setters = "*"
 fastrand = "*"
 micropb = "*"
-opentelemetry-micropb = { git = "https://github.com/Schmidt-Embedded-Systems-GmbH/opentelemetry-micropb.git" }
+opentelemetry-micropb = { version = "0.1.0" }
