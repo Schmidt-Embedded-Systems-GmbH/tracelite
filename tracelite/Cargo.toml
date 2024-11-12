@@ -2,6 +2,7 @@
 name = "tracelite"
 version = "0.1.0"
 edition = "2021"
+description = "An alternative to the tracing crate which is specialized for OpenTelemetry traces"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
