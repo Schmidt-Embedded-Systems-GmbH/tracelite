@@ -269,6 +269,13 @@ pub mod globals {
 
     struct FlushOnDrop(pub Box<dyn Tracer>);
 
+    impl Drop for FlushOnDrop {
+        fn drop(&mut self) {
+            self.0.flush();
+        }
+    }
+
+    // TODO does not work - static objects do not get dropped
     static TRACER: std::sync::OnceLock<FlushOnDrop> = std::sync::OnceLock::new();
 
     tokio::task_local! {

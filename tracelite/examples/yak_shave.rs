@@ -73,7 +73,7 @@ async fn main(){
                 otlp_endpoint,
                 client: reqwest::Client::new(),
             },
-            std::time::Duration::from_secs(20),
+            std::time::Duration::from_secs(2),
         )
     ).install();
 
@@ -82,5 +82,6 @@ async fn main(){
         let num_shaved = shave_all(10);
 
         info_event!("return", num_shaved)
-    })
+    });
+    std::thread::sleep(std::time::Duration::new(20, 0));
 }

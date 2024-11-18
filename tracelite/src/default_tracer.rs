@@ -82,10 +82,18 @@ pub struct DefaultTracer<C, E> {
     on_instrumentation_error: Box<dyn Fn(InstrumentationError) + Send + Sync>
 }
 
+impl<C, E> Drop for DefaultTracer<C, E> {
+    fn drop(&mut self) {
+        println!("[DEBUG] tracelite: drop default tracer")
+    }
+}
+
 impl<C, E> Tracer for DefaultTracer<C, E>
     where C: SpanCollection, E: Fn(C::Exportable) + Send + Sync + 'static
 {
     fn open_span(&self, args: SpanArgs, _private: PrivateMarker) -> LocalSpanRef {
+        println!("[DEBUG] tracelite: open span");
+
         // generate ids; extract trace id if there is a parent
         let span_id = SpanId(NonZeroU64::new(fastrand::u64(1..)).unwrap());
         let trace_id = args.parent
@@ -115,9 +123,11 @@ impl<C, E> Tracer for DefaultTracer<C, E>
     }
     
     fn drop_span(&self, idx: SpanCollectionIndex, dropped_at: SystemTime, private: PrivateMarker) {
+        println!("[DEBUG] tracelite: drop span {}", idx.0);
         self.spans.lock().drop_span(idx, dropped_at, &self.export_sink, private);
     }
     fn flush(&self) {
+        println!("[DEBUG] tracelite: flush");
         self.spans.lock().flush(&self.export_sink);
     }
 

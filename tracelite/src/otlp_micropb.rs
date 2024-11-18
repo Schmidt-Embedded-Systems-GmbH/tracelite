@@ -68,14 +68,14 @@ impl OtlpMicroPbConfig {
     }
 
     pub fn build(self) -> OtlpMicroPbSpanCollection {
-        let mut dropped_spans = trace::ResourceSpans::default();
-        dropped_spans.set_resource(self.resource.clone()); // TODO build resource in this method
-        dropped_spans.scope_spans = vec![Default::default()];
+        let mut export_spans = trace::ResourceSpans::default();
+        export_spans.set_resource(self.resource.clone()); // TODO build resource in this method
+        export_spans.scope_spans = vec![Default::default()];
         OtlpMicroPbSpanCollection{
             config: self,
             spans: vec![],
             free_indicies: vec![],
-            dropped_spans,
+            export_spans,
         }
     }
 
@@ -88,7 +88,7 @@ pub struct OtlpMicroPbSpanCollection {
     config: OtlpMicroPbConfig,
     spans: Vec<Option<trace::Span>>,
     free_indicies: Vec<u32>,
-    dropped_spans: trace::ResourceSpans,
+    export_spans: trace::ResourceSpans,
 }
 
 impl OtlpMicroPbSpanCollection {
@@ -137,6 +137,9 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
             pb_span.set_status(map_span_status(status));
         }
 
+        debug_assert!(self.spans[idx as usize].is_none());
+        self.spans[idx as usize] = Some(pb_span);
+
         Ok(SpanCollectionIndex(idx, 0))
     }
 
@@ -175,6 +178,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         _private: PrivateMarker
     ) {
         let Some(mut span) = self.spans[idx.0 as usize].take() else {
+            println!("[ERROR] tracelite: dropped span which does not exist");
             return // no span here TODO should log error
         };
         self.free_indicies.push(idx.0);
@@ -183,10 +187,10 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
             span.end_time_unix_nano = dropped_at.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
         }
 
-        let scope_span = &mut self.dropped_spans.scope_spans[0];
-        scope_span.spans.push(span);
+        let export_spans_scope = &mut self.export_spans.scope_spans[0];
+        export_spans_scope.spans.push(span);
         if let Some(size) = self.config.autoflush_batch_size {
-            if scope_span.spans.len() > size as usize {
+            if export_spans_scope.spans.len() > size as usize {
                 self.flush(export);
             }
         }
@@ -204,9 +208,23 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
             }
         }
 
+        self.spans.retain_mut(|entry| {
+            if entry.is_none() { return true }
+            if entry.as_mut().unwrap().end_time_unix_nano == 0 { return true }
+
+            let export_spans_scope = &mut self.export_spans.scope_spans[0];
+            export_spans_scope.spans.push(entry.take().unwrap());
+            true
+        });
+
+        if self.export_spans.scope_spans[0].spans.is_empty() {
+            println!("[INFO] tracelite: nothing to export");
+            return // no spans to export
+        }
+
         let mut encoder = micropb::PbEncoder::new(PbIoWrite(vec![]));
-        self.dropped_spans.encode(&mut encoder).unwrap(); // TODO handle error
-        self.dropped_spans.scope_spans[0].spans.clear();
+        self.export_spans.encode(&mut encoder).unwrap(); // TODO handle error
+        self.export_spans.scope_spans[0].spans.clear();
         export(encoder.into_writer().0);
     }
 }

@@ -14,12 +14,14 @@ pub async fn tokio_export_loop(
         let autoflush = tokio::time::sleep(tracer_autoflush_interval);
         tokio::select! {
             opt = batch_receiver.recv() => {
+                println!("[DEBUG] tracelite: background worker received batch or dead sender");
                 match opt {
                     Some(batch) => export.export(&batch).await,
                     None => return // channel senders dropped
                 }
             }
             _ = autoflush => {
+                println!("[DEBUG] tracelite: background worker performs autoflush");
                 globals::tracer().map(|t| t.flush());
             }
         };
@@ -39,7 +41,11 @@ pub fn spawn_tokio_export_loop(
 
     move |batch| {
         // TODO how to react to dropped receiver?
-        let _ = batch_sender.send(batch);
+        let batch_size = batch.len();
+        match batch_sender.send(batch) {
+            Ok(()) => println!("[DEBUG] tracelite: sent batch of size {batch_size} to background worker"),
+            Err(err) => eprintln!("[ERROR] tracelite: failed to send batch to background worker: {err}")
+        }
     }
 }
 
@@ -50,6 +56,8 @@ pub struct ReqwestPost {
 
 impl Export for ReqwestPost {
     fn export<'a>(&'a self, data: &'a [u8]) -> impl std::future::Future<Output = ()> + 'a {
+        println!("tracelite: exporting {} bytes", data.len());
+
         use futures::FutureExt;
         let url = format!("{}/v1/traces", self.otlp_endpoint);
         let client = self.client.clone();
@@ -63,7 +71,7 @@ impl Export for ReqwestPost {
                         println!("tracelite: exported {} bytes", data.len());
                     }
                     Err(err) => {
-                        eprintln!("tracelite: failed to export {} bytes: {err}", data.len());
+                        eprintln!("tracelite: failed to export {} bytes: {err}, status code {:?}", data.len(), err.status());
                     }
                 }
             })
