@@ -1,13 +1,24 @@
-#[macro_use] extern crate derive_setters;
+// #![deny(unused)]
+#![deny(warnings)]
 
-pub extern crate log;
+extern crate tracelite_macro;
+#[allow(unused)]
+pub use tracelite_macro::{trace_span, debug_span, info_span};
 
-mod internal;
+pub use log;
+
 mod spinlock;
-mod default_tracer;
-pub mod otlp_micropb;
-mod export;
-// pub mod macros;
 
-pub use internal::*;
-pub use internal::globals::*;
+mod tracer;
+mod default_tracer;
+pub use default_tracer::*;
+
+pub mod otlp_micropb;
+pub mod export;
+pub mod macros;
+mod severity;
+
+pub use tracer::*;
+pub use tracer::globals::*;
+pub use severity::*;
+

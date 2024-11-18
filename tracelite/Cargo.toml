@@ -1,20 +1,22 @@
 [package]
 name = "tracelite"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "An alternative to the tracing crate which is specialized for OpenTelemetry traces"
 license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[features]
-default = ["enable"]
-enable = []
+# [features]
+# default = ["enable", "reqwest", "log", "opentelemetry-micropb"]
+# enable = []
 
 [dependencies]
-tokio = { version = "1.41", features = ["sync", "rt", "time", "macros"] }
+tracelite_macro = { path = "../tracelite_macro" }
+tokio = { version = "1.41", features = ["sync", "rt", "time", "macros", "net"] }
+futures = "0.3"
 log = { version = "0.4", features=["kv_std", "kv_serde"] }
-derive_setters = "0.1"
 fastrand = "2.2"
 micropb = "0.1"
 opentelemetry-micropb = { version = "0.1.0" }
+reqwest = "0.12"

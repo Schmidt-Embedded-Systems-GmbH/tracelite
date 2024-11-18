@@ -205,7 +205,8 @@ dependencies = [
 [[package]]
 name = "opentelemetry-micropb"
 version = "0.1.0"
-source = "git+https://github.com/Schmidt-Embedded-Systems-GmbH/opentelemetry-micropb.git#12575500c2f510b8d9f901b2e9de8472e219cd20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "259d98f3e9ca0e8d70983faa00b8a912c2563d9e9fa5d19c4fe3362916e83ef7"
 dependencies = [
  "bumpalo",
  "micropb",

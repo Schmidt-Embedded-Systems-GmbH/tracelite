@@ -108,16 +108,16 @@ unsafe impl<T> Sync for Spinlock<T> {}
 ///     drop(lock);
 /// }
 /// ```
-pub type StaticSpinlock = Spinlock<()>;
+// pub type StaticSpinlock = Spinlock<()>;
 
 /// A initializer for StaticSpinlock, containing no data.
-pub const STATIC_SPINLOCK_INIT: StaticSpinlock = Spinlock {
-    lock: AtomicBool::new(false),
-    data: UnsafeCell::new(()),
-};
+// pub const STATIC_SPINLOCK_INIT: StaticSpinlock = Spinlock {
+//     lock: AtomicBool::new(false),
+//     data: UnsafeCell::new(()),
+// };
 
 //#[deprecated = "renamed to STATIC_SPINLOCK_INIT"]
-pub const INIT_STATIC_SPINLOCK: StaticSpinlock = STATIC_SPINLOCK_INIT;
+// pub const INIT_STATIC_SPINLOCK: StaticSpinlock = STATIC_SPINLOCK_INIT;
 
 impl<T> Spinlock<T>
 {
@@ -133,6 +133,7 @@ impl<T> Spinlock<T>
 
     fn obtain_lock(&self)
     {
+        #![allow(deprecated)] // TODO
         while self.lock.compare_and_swap(false, true, Ordering::SeqCst) != false
         {
             std::hint::spin_loop();

@@ -1,0 +1,19 @@
+[package]
+name = "tracelite_macro"
+version = "0.1.1"
+edition = "2021"
+description = "Procedual macros for the tracelite crate"
+license = "MIT"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro-error = "1"
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "1.0.84", features = ["full", "parsing", "extra-traits", "proc-macro", "visit-mut"] }
+
+
+[dev-dependencies]
+tracelite = { path = "../tracelite" }
