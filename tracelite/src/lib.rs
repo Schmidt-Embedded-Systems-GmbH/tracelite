@@ -1,4 +1,3 @@
-// #![deny(unused)]
 #![deny(warnings)]
 
 extern crate tracelite_macro;
@@ -9,16 +8,19 @@ pub use log;
 
 mod spinlock;
 
+mod severity;
+pub use severity::*;
+
 mod tracer;
+pub use tracer::*;
+pub use tracer::globals::*;
+
 mod default_tracer;
 pub use default_tracer::*;
 
-pub mod otlp_micropb;
 pub mod export;
-pub mod macros;
-mod severity;
 
-pub use tracer::*;
-pub use tracer::globals::*;
-pub use severity::*;
+mod otlp_micropb;
+pub use otlp_micropb::*;
 
+mod macros;
