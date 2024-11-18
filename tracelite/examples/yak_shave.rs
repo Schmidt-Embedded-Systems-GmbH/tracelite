@@ -60,7 +60,7 @@ pub fn shave_all(yaks: usize) -> usize {
 } 
 
 fn main(){
-    use tracelite::{DefaultTracerConfig, otlp_micropb::OtlpMicroPbConfig, export};
+    use tracelite::{DefaultTracerConfig, OtlpMicroPbConfig, export};
 
     let otlp_endpoint = std::env::var("OTLP_ENDPOINT").unwrap();
 

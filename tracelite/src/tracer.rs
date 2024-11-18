@@ -382,25 +382,52 @@ pub mod globals {
         mark_span_as_error(msg);
     }
 
-    pub trait RecordException {
-        fn record(self) -> Self;
-        fn record_as_error<'a>(self, msg: impl Into<MaybeStaticStr<'a>>) -> Self;
+    pub fn record_exception_debug(ex: &impl std::fmt::Debug){
+        EventArgs::new("exception")
+            .record(&[
+                ("exception.message".into(), log::kv::Value::from_debug(ex)),
+                ("exception.type".into(), std::any::type_name_of_val(ex).into()),
+            ])
     }
 
-    impl<T, E> RecordException for Result<T, E>
-        where E: std::error::Error
-    {
-        fn record(self) -> Self {
-            self.map_err(|ex| {
-                record_exception(&ex);   
-                ex
-            })
+    pub fn record_exception_debug_as_error<'a>(ex: &impl std::fmt::Debug, msg: impl Into<MaybeStaticStr<'a>>){
+        record_exception_debug(ex);
+        mark_span_as_error(msg);
+    }
+
+    pub trait RecordException<E> {
+        fn record(self) -> Self
+            where E: std::error::Error;
+        fn record_as_error<'a>(self, msg: impl Into<MaybeStaticStr<'a>>) -> Self
+            where E: std::error::Error;
+
+        fn record_debug(self) -> Self
+            where E: std::fmt::Debug;
+        fn record_debug_as_error<'a>(self, msg: impl Into<MaybeStaticStr<'a>>) -> Self
+            where E: std::fmt::Debug;
+    }
+
+    impl<T, E> RecordException<E> for Result<T, E> {
+        fn record(self) -> Self
+            where E: std::error::Error
+        {
+            self.inspect_err(|ex| record_exception(&ex))
         }
-        fn record_as_error<'a>(self, msg: impl Into<MaybeStaticStr<'a>>) -> Self {
-            self.map_err(|ex| {
-                record_exception_as_error(&ex, msg.into());   
-                ex
-            })
+        fn record_as_error<'a>(self, msg: impl Into<MaybeStaticStr<'a>>) -> Self
+            where E: std::error::Error
+        {
+            self.inspect_err(|ex| record_exception_as_error(&ex, msg.into()))
+        }
+        fn record_debug(self) -> Self
+            where E: std::fmt::Debug
+        {
+            self.inspect_err(|ex| record_exception_debug(&ex))
+        }
+        
+        fn record_debug_as_error<'a>(self, msg: impl Into<MaybeStaticStr<'a>>) -> Self
+            where E: std::fmt::Debug
+        {
+            self.inspect_err(|ex| record_exception_debug_as_error(&ex, msg.into()))
         }
     }
 }
