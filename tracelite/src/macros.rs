@@ -65,6 +65,7 @@ macro_rules! __new_event {
     ) => {
         {
             let mut _event = $crate::EventArgs::new($crate::MaybeStaticStr::Static($name));
+            _event.severity = $severity;
             $($(
                 _event = _event.$setter($($setter_args),*);
             )*)?
@@ -83,24 +84,28 @@ macro_rules! __new_event {
 }
 
 #[macro_export]
+macro_rules! event {
+    ($name:literal $($rest:tt)*) => { $crate::__new_event!(None, $name $($rest)*) }
+}
+#[macro_export]
 macro_rules! trace_event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(($crate::Severity::Trace), $name $($rest)*) }
+    ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Trace), $name $($rest)*) }
 }
 #[macro_export]
 macro_rules! debug_event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(($crate::Severity::Debug), $name $($rest)*) }
+    ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Debug), $name $($rest)*) }
 }
 #[macro_export]
 macro_rules! info_event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(($crate::Severity::Info ), $name$($rest)*) }
+    ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Info ), $name$($rest)*) }
 }
 #[macro_export]
 macro_rules! warn_event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(($crate::Severity::Warn ), $name$($rest)*) }
+    ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Warn ), $name$($rest)*) }
 }
 #[macro_export]
 macro_rules! error_event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(($crate::Severity::Error), $name$($rest)*) }
+    ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Error), $name$($rest)*) }
 }
 
 

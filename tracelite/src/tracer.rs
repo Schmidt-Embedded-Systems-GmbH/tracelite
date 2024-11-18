@@ -162,7 +162,7 @@ pub struct EventArgs<'a> {
     pub name: MaybeStaticStr<'a>,
     pub occurs_at: SystemTime,
     pub attributes: AttributeListRef<'a>,
-    pub sample_level: Option<Severity>,
+    pub severity: Option<Severity>,
 }
 
 impl<'a> EventArgs<'a> {
@@ -171,7 +171,7 @@ impl<'a> EventArgs<'a> {
             name: name.into(),
             occurs_at: SystemTime::now(),
             attributes: &[],
-            sample_level: None,
+            severity: None,
         }
     }
 
