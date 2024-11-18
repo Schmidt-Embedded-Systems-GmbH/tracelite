@@ -1,11 +1,10 @@
 [package]
 name = "tracelite"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "An alternative to the tracing crate which is specialized for OpenTelemetry traces"
 license = "MIT"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+repository = "https://github.com/Schmidt-Embedded-Systems-GmbH/tracelite"
 
 # [features]
 # default = ["enable", "reqwest", "log", "opentelemetry-micropb"]
