@@ -12,7 +12,7 @@ license = "MIT"
 # enable = []
 
 [dependencies]
-tracelite_macro = { path = "../tracelite_macro" }
+tracelite_macro = "0.1.1"
 tokio = { version = "1.41", features = ["sync", "rt", "time", "macros", "net"] }
 futures = "0.3"
 log = { version = "0.4", features=["kv_std", "kv_serde"] }
