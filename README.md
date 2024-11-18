@@ -188,6 +188,7 @@ There are 5 different event severities:
 
 |severity|expression macro
 |-|-
+|(same as span)|`event!()`|
 |TRACE|`trace_event!()`|
 |DEBUG|`debug_event!()`|
 |INFO |`info_event!()`|
