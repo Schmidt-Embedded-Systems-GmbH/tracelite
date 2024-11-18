@@ -59,7 +59,8 @@ pub fn shave_all(yaks: usize) -> usize {
     })
 } 
 
-fn main(){
+#[tokio::main]
+async fn main(){
     use tracelite::{DefaultTracerConfig, OtlpMicroPbConfig, export};
 
     let otlp_endpoint = std::env::var("OTLP_ENDPOINT").unwrap();

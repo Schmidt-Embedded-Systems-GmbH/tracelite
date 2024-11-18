@@ -34,7 +34,7 @@ pub fn spawn_tokio_export_loop(
     let (batch_sender, batch_receiver) = tokio::sync::mpsc::unbounded_channel();
 
     tokio::spawn(async move {
-        tokio_export_loop(batch_receiver, export, tracer_autoflush_interval)
+        tokio_export_loop(batch_receiver, export, tracer_autoflush_interval).await
     });
 
     move |batch| {

@@ -157,17 +157,17 @@ Initially, the span status of a span will be _unset_ (except for ERROR spans). Y
 ```rust
 #[error_span]
 fn i_am_not_an_error(){
-    traclite::set_status(tracelite::SpanStatus::Ok)
+    tracelite::set_status(tracelite::SpanStatus::Ok)
     
     // equivalent to
-    traclite::mark_span_as_ok()
+    tracelite::mark_span_as_ok()
 }
 #[info_span]
 fn i_am_an_error(){
-    traclite::set_status(tracelite::SpanStatus::error("some error message"))
+    tracelite::set_status(tracelite::SpanStatus::error("some error message"))
 
     // equivalent to
-    traclite::mark_span_as_error("some error message")
+    tracelite::mark_span_as_error("some error message")
 }
 ```
 

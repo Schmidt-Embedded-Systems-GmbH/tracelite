@@ -267,19 +267,21 @@ pub mod globals {
     use tokio::task::futures::TaskLocalFuture;
     use std::future::Future;
 
-    static TRACER: std::sync::OnceLock<Box<dyn Tracer>> = std::sync::OnceLock::new();
+    struct FlushOnDrop(pub Box<dyn Tracer>);
+
+    static TRACER: std::sync::OnceLock<FlushOnDrop> = std::sync::OnceLock::new();
 
     tokio::task_local! {
         static CURRENT_SPAN: OwnedSpan;
     }
 
     pub fn set_tracer(tracer: Box<dyn Tracer>){
-        TRACER.set(tracer).ok()
+        TRACER.set(FlushOnDrop(tracer)).ok()
             .expect("[FATAL] tracelite: tracer already set");
     }
 
     pub(crate) fn tracer() -> Option<&'static dyn Tracer> {
-        TRACER.get().map(|f| &**f)
+        TRACER.get().map(|f| &*f.0)
     }
 
     pub fn current_span() -> Option<Span> {
