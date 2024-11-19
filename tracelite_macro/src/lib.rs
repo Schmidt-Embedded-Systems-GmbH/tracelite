@@ -25,6 +25,13 @@ pub fn trace_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) 
 }
 
 #[proc_macro_attribute]
+pub fn trace2_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args as proc_macro2::TokenStream);
+    let input = parse_macro_input!(item as ItemFn);
+    span_generate("new_trace2_span", args, input)
+}
+
+#[proc_macro_attribute]
 pub fn debug_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args as proc_macro2::TokenStream);
     let input = parse_macro_input!(item as ItemFn);
@@ -32,10 +39,59 @@ pub fn debug_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) 
 }
 
 #[proc_macro_attribute]
+pub fn debug2_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args as proc_macro2::TokenStream);
+    let input = parse_macro_input!(item as ItemFn);
+    span_generate("new_debug2_span", args, input)
+}
+
+#[proc_macro_attribute]
 pub fn info_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args as proc_macro2::TokenStream);
     let input = parse_macro_input!(item as ItemFn);
     span_generate("new_info_span", args, input)
+}
+
+#[proc_macro_attribute]
+pub fn info2_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args as proc_macro2::TokenStream);
+    let input = parse_macro_input!(item as ItemFn);
+    span_generate("new_info2_span", args, input)
+}
+
+#[proc_macro_attribute]
+pub fn warn_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args as proc_macro2::TokenStream);
+    let input = parse_macro_input!(item as ItemFn);
+    span_generate("new_warn_span", args, input)
+}
+
+#[proc_macro_attribute]
+pub fn warn2_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args as proc_macro2::TokenStream);
+    let input = parse_macro_input!(item as ItemFn);
+    span_generate("new_warn2_span", args, input)
+}
+
+#[proc_macro_attribute]
+pub fn error_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args as proc_macro2::TokenStream);
+    let input = parse_macro_input!(item as ItemFn);
+    span_generate("new_error_span", args, input)
+}
+
+#[proc_macro_attribute]
+pub fn error2_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args as proc_macro2::TokenStream);
+    let input = parse_macro_input!(item as ItemFn);
+    span_generate("new_error2_span", args, input)
+}
+
+#[proc_macro_attribute]
+pub fn fatal_span(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args as proc_macro2::TokenStream);
+    let input = parse_macro_input!(item as ItemFn);
+    span_generate("new_fatal_span", args, input)
 }
 
 fn span_generate(

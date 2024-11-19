@@ -26,18 +26,17 @@ macro_rules! __new_span {
     }
 }
 
-#[macro_export]
-macro_rules! new_trace_span {
-    ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Trace), $name $($rest)*) }
-}
-#[macro_export]
-macro_rules! new_debug_span {
-    ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Debug), $name $($rest)*) }
-}
-#[macro_export]
-macro_rules! new_info_span {
-    ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Info), $name $($rest)*) }
-}
+#[macro_export] macro_rules! new_trace_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Trace ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_trace2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Trace ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_debug_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Debug ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_debug2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Debug2), $name $($rest)*) } }
+#[macro_export] macro_rules! new_info_span   { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Info  ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_info2_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Info2 ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_warn_span   { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Warn  ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_warn2_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Warn2 ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_error_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Error ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_error2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Error2), $name $($rest)*) } }
+#[macro_export] macro_rules! new_fatal_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Fatal ), $name $($rest)*) } }
 
 #[macro_export]
 macro_rules! span_attributes {
@@ -83,30 +82,18 @@ macro_rules! __new_event {
     }
 }
 
-#[macro_export]
-macro_rules! event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(None, $name $($rest)*) }
-}
-#[macro_export]
-macro_rules! trace_event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Trace), $name $($rest)*) }
-}
-#[macro_export]
-macro_rules! debug_event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Debug), $name $($rest)*) }
-}
-#[macro_export]
-macro_rules! info_event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Info ), $name$($rest)*) }
-}
-#[macro_export]
-macro_rules! warn_event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Warn ), $name$($rest)*) }
-}
-#[macro_export]
-macro_rules! error_event {
-    ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Error), $name$($rest)*) }
-}
+#[macro_export] macro_rules! event { ($name:literal $($rest:tt)*) => { $crate::__new_event!(None, $name $($rest)*) } }
+#[macro_export] macro_rules! trace_event  { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Trace ), $name $($rest)*) } }
+#[macro_export] macro_rules! trace2_event { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Trace2), $name $($rest)*) } }
+#[macro_export] macro_rules! debug_event  { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Debug ), $name $($rest)*) } }
+#[macro_export] macro_rules! debug2_event { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Debug2), $name $($rest)*) } }
+#[macro_export] macro_rules! info_event   { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Info  ), $name $($rest)*) } }
+#[macro_export] macro_rules! info2_event  { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Info2 ), $name $($rest)*) } }
+#[macro_export] macro_rules! warn_event   { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Warn  ), $name $($rest)*) } }
+#[macro_export] macro_rules! warn2_event  { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Warn2 ), $name $($rest)*) } }
+#[macro_export] macro_rules! error_event  { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Error ), $name $($rest)*) } }
+#[macro_export] macro_rules! error2_event { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Error2), $name $($rest)*) } }
+#[macro_export] macro_rules! fatal_event  { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Fatal ), $name $($rest)*) } }
 
 
 #[test]
