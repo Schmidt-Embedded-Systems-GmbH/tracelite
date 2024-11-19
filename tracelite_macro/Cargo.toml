@@ -1,6 +1,6 @@
 [package]
 name = "tracelite_macro"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Procedual macros for the tracelite crate"
 license = "MIT"
