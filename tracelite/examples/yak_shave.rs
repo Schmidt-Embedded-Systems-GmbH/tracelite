@@ -6,6 +6,8 @@
 
 use std::{error::Error, io};
 
+use tracelite::export;
+
 // use tracelite::{debug_event, info_event, warn_event};
 
 
@@ -69,10 +71,11 @@ async fn main(){
         OtlpMicroPbConfig::new("testservice", &[])
             .build(),
         export::spawn_tokio_export_loop(
-            export::ReqwestPost{
-                otlp_endpoint,
-                client: reqwest::Client::new(),
-            },
+            // export::ReqwestPost{
+            //     otlp_endpoint,
+            //     client: reqwest::Client::builder().http2_prior_knowledge().build().unwrap(),
+            // },
+            export::H2GrpcExport::new(&otlp_endpoint).unwrap(),
             std::time::Duration::from_secs(2),
         )
     ).install();

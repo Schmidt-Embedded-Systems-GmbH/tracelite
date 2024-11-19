@@ -12,10 +12,15 @@ repository = "https://github.com/Schmidt-Embedded-Systems-GmbH/tracelite"
 
 [dependencies]
 tracelite_macro = "0.1.1"
+# TODO axe unused feature (rt-multi-thread only used for examples)
 tokio = { version = "1.41", features = ["sync", "rt", "time", "macros", "net", "rt-multi-thread"] }
 futures = "0.3"
 log = { version = "0.4", features=["kv_std", "kv_serde"] }
 fastrand = "2.2"
 micropb = "0.1"
-opentelemetry-micropb = { version = "0.1.0" }
+opentelemetry-micropb = { version = "0.1.1" }
 reqwest = "0.12"
+http-body-util = "*"
+h2 = "0.4"
+http = "1.1"
+bytes = "1"

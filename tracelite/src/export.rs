@@ -1,3 +1,7 @@
+use futures::FutureExt;
+use http::header::CONTENT_TYPE;
+use http::Method;
+
 use super::tracer::globals;
 use std::time::Duration;
 
@@ -49,66 +53,63 @@ pub fn spawn_tokio_export_loop(
     }
 }
 
-pub struct ReqwestPost {
-    pub otlp_endpoint: String,
-    pub client: reqwest::Client
+// TODO keep connection open
+// TODO get rid of unwraps
+pub struct H2GrpcExport {
+    grpc_method_uri: http::Uri,
+    host: String,
+    port: u16,
 }
 
-impl Export for ReqwestPost {
-    fn export<'a>(&'a self, data: &'a [u8]) -> impl std::future::Future<Output = ()> + 'a {
-        println!("tracelite: exporting {} bytes", data.len());
+impl H2GrpcExport {
+    pub fn new(otlp_endpoint: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let uri: http::Uri = otlp_endpoint.parse().unwrap();
+        let (host, port) = (uri.host().unwrap().to_owned(), uri.port_u16().unwrap_or(4317));
 
-        use futures::FutureExt;
-        let url = format!("{}/v1/traces", self.otlp_endpoint);
-        let client = self.client.clone();
-        client.post(url)
-            .body(data.to_vec()) // FIXME can we avoid this allocation?
-            .send()
-            .map(|result| {
-                match result {
-                    Ok(_) => {
-                        // TODO make use of ExportTraces response
-                        println!("tracelite: exported {} bytes", data.len());
-                    }
-                    Err(err) => {
-                        eprintln!("tracelite: failed to export {} bytes: {err}, status code {:?}", data.len(), err.status());
-                    }
-                }
-            })
+        let insert_slash = if otlp_endpoint.ends_with("/") { "" } else { "/" };
+        let method_name = "opentelemetry.proto.collector.trace.v1.TraceService/Export";
+        let grpc_method_uri = format!("{otlp_endpoint}{insert_slash}{method_name}").parse().unwrap();
+
+        Ok(Self { grpc_method_uri, host, port })
+    }
+
+    async fn try_send(&self, data: bytes::Bytes) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(CONTENT_TYPE, "application/grpc".parse().unwrap());
+        headers.insert("te", "trailers".parse().unwrap());
+
+        let tcp = tokio::net::TcpStream::connect((self.host.as_str(), self.port)).await?;
+        let (mut h2, connection) = h2::client::handshake(tcp).await?;
+        tokio::spawn(async move {
+            connection.await.unwrap();
+        });
+
+        let mut req_headers = http::Request::new(());
+        *req_headers.method_mut() = Method::POST;
+        *req_headers.uri_mut() = self.grpc_method_uri.clone();
+        req_headers.headers_mut().extend(headers);
+            
+        let (response, mut stream) = h2.send_request(req_headers, false)?;
+        stream.send_data(data, true)?;
+
+        let resp = response.await?;
+
+        println!("[DEBUG] tracelite: received response (status {}) with headers/trailers {:?}", resp.status(), resp.headers());
+
+        Ok(())
     }
 }
 
-// pub fn http_tcp_stream_post(host: &str) -> impl Fn(&[u8]) + Send + 'static {
-//     let url = url.to_owned();
-//     move |data| {
-//         let mut stream = match std::net::TcpStream::connect(&url) {
-//             Ok(stream) => stream,
-//             Err(err) => {
-//                 eprint!("tracelite: failed to open tcp stream to {url}/v1/traces: {err}");
-//                 return
-//             }
-//         };
-
-//         let preamble = format!(
-//             "POST /v1/traces HTTP/1.0\r\n\
-//             Content-Length: {}\r\n\
-//             ",
-//         ); 
-//         if let Err(err) = stream.write(data) {
-//             eprint!("tracelite: failed to write request preamble to tcp stream: {err}");
-//             return
-//         }
-
-//         if let Err(err) = stream.write(data) {
-//             eprint!("tracelite: failed to write request body to tcp stream: {err}");
-//             return
-//         }
-        
-//         let mut resp_buf = vec![]; // TODO what to do with response?
-//         if let Err(err) = stream.read_to_end(buf) {
-
-//             eprint!("tracelite: failed to write to tcp stream: {err}");
-//             return
-//         }
-//     }
-// }
+impl Export for H2GrpcExport {
+    fn export<'a>(&'a self, data: &'a [u8]) -> impl std::future::Future<Output = ()> + Send + 'a {
+        let data = bytes::Bytes::copy_from_slice(data);
+        self.try_send(data)
+            .inspect(|result| {
+                if let Err(err) = result {
+                    println!("[ERROR] tracelite: failed to export batch: {err}");
+                }
+            })
+            .then(|_| async { () })
+            
+    }
+}

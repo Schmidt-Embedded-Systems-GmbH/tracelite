@@ -1,6 +1,7 @@
 use crate::default_tracer::SpanCollection;
 use crate::tracer::{AttributeListRef, EventArgs, MaybeStaticStr, PrivateMarker, SpanArgs, SpanCollectionIndex, SpanId, SpanKind, SpanStatus, TraceId};
-use opentelemetry_micropb::std::common_::v1_::{self as common};
+use opentelemetry_micropb::std::collector_::trace_::v1_ as collector;
+use opentelemetry_micropb::std::common_::v1_ as common;
 use opentelemetry_micropb::std::trace_::v1_ as trace;
 use opentelemetry_micropb::std::resource_::v1_ as resource;
 use micropb::MessageEncode;
@@ -68,14 +69,14 @@ impl OtlpMicroPbConfig {
     }
 
     pub fn build(self) -> OtlpMicroPbSpanCollection {
-        let mut export_spans = trace::ResourceSpans::default();
-        export_spans.set_resource(self.resource.clone()); // TODO build resource in this method
-        export_spans.scope_spans = vec![Default::default()];
+        let mut resource_span = trace::ResourceSpans::default();
+        resource_span.set_resource(self.resource.clone()); // TODO build resource in this method
+        resource_span.scope_spans = vec![Default::default()];
         OtlpMicroPbSpanCollection{
             config: self,
             spans: vec![],
             free_indicies: vec![],
-            export_spans,
+            export_data: collector::ExportTraceServiceRequest{ resource_spans: vec![resource_span] },
         }
     }
 
@@ -88,7 +89,7 @@ pub struct OtlpMicroPbSpanCollection {
     config: OtlpMicroPbConfig,
     spans: Vec<Option<trace::Span>>,
     free_indicies: Vec<u32>,
-    export_spans: trace::ResourceSpans,
+    export_data: collector::ExportTraceServiceRequest,
 }
 
 impl OtlpMicroPbSpanCollection {
@@ -178,7 +179,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         _private: PrivateMarker
     ) {
         let Some(mut span) = self.spans[idx.0 as usize].take() else {
-            println!("[ERROR] tracelite: dropped span which does not exist");
+            eprintln!("[ERROR] tracelite: dropped span which does not exist");
             return // no span here TODO should log error
         };
         self.free_indicies.push(idx.0);
@@ -187,7 +188,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
             span.end_time_unix_nano = dropped_at.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
         }
 
-        let export_spans_scope = &mut self.export_spans.scope_spans[0];
+        let export_spans_scope = &mut self.export_data.resource_spans[0].scope_spans[0];
         export_spans_scope.spans.push(span);
         if let Some(size) = self.config.autoflush_batch_size {
             if export_spans_scope.spans.len() > size as usize {
@@ -212,19 +213,26 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
             if entry.is_none() { return true }
             if entry.as_mut().unwrap().end_time_unix_nano == 0 { return true }
 
-            let export_spans_scope = &mut self.export_spans.scope_spans[0];
+            let export_spans_scope = &mut self.export_data.resource_spans[0].scope_spans[0];
             export_spans_scope.spans.push(entry.take().unwrap());
             true
         });
 
-        if self.export_spans.scope_spans[0].spans.is_empty() {
+        if self.export_data.resource_spans[0].scope_spans[0].spans.is_empty() {
             println!("[INFO] tracelite: nothing to export");
             return // no spans to export
         }
 
-        let mut encoder = micropb::PbEncoder::new(PbIoWrite(vec![]));
-        self.export_spans.encode(&mut encoder).unwrap(); // TODO handle error
-        self.export_spans.scope_spans[0].spans.clear();
-        export(encoder.into_writer().0);
+        // gRPC framing: 1 byte flag (compressed=0) + 4 byte message length (big endian)
+        let buf = vec![0u8, 0, 0, 0, 0];
+        let mut encoder = micropb::PbEncoder::new(PbIoWrite(buf));
+        self.export_data.encode(&mut encoder).unwrap(); // TODO handle error
+        self.export_data.resource_spans[0].scope_spans[0].spans.clear();
+
+        let mut buf = encoder.into_writer().0;
+        let message_len = buf.len() as u32 - 5;
+        buf[1..5].copy_from_slice(&(message_len).to_be_bytes());
+
+        export(buf);
     }
 }
