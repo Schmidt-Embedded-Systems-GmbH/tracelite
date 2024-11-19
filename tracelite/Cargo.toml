@@ -1,6 +1,6 @@
 [package]
 name = "tracelite"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "An alternative to the tracing crate which is specialized for OpenTelemetry traces"
 license = "MIT"
@@ -11,7 +11,7 @@ repository = "https://github.com/Schmidt-Embedded-Systems-GmbH/tracelite"
 # enable = []
 
 [dependencies]
-tracelite_macro = "0.1.1"
+tracelite_macro = "0.1.2"
 # TODO axe unused feature (rt-multi-thread only used for examples)
 tokio = { version = "1.41", features = ["sync", "rt", "time", "macros", "net", "rt-multi-thread"] }
 futures = "0.3"
