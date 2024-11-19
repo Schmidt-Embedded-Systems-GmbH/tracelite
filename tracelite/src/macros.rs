@@ -45,7 +45,7 @@ macro_rules! span_attributes {
             $crate::set_attributes([
                 $(
                     ((
-                        $crate::tracer::MaybeStaticStr::Static($crate::log::__log_key!($attr_key)),
+                        $crate::MaybeStaticStr::Static($crate::log::__log_key!($attr_key)),
                         $crate::log::__log_value!($attr_key $(:$capture)* = $($attr_val)*)
                     )),
                 )*
