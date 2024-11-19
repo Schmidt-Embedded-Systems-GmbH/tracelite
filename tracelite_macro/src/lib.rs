@@ -11,8 +11,6 @@ extern crate proc_macro;
 // #[macro_use]
 // extern crate proc_macro_error;
 
-use proc_macro::{Ident, TokenStream, TokenTree};
-use proc_macro2::Span;
 use quote::quote_spanned;
 use syn::spanned::Spanned;
 use syn::*;
@@ -180,9 +178,10 @@ fn gen_block(
     // Otherwise, this will enter the span and then perform the rest of the body.
     if async_context {
         let block = quote_spanned!(block.span() => {
+            let __current_span = tracelite::#span_macro!(#func_name, #args);
             tracelite::InSpan::in_span(
                 async move { #block },
-                tracelite::#span_macro!(#func_name, #args),
+                __current_span,
             )
         });
 
@@ -191,8 +190,7 @@ fn gen_block(
                 #block.await
             )
         } else {
-            panic!("please find me");
-            // block // TODO what happened here?
+            block
         }
     } else {
         quote_spanned!(block.span() =>
