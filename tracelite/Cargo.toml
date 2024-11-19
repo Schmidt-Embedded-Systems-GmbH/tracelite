@@ -19,8 +19,6 @@ log = { version = "0.4", features=["kv_std", "kv_serde"] }
 fastrand = "2.2"
 micropb = "0.1"
 opentelemetry-micropb = { version = "0.1.1" }
-reqwest = "0.12"
-http-body-util = "*"
 h2 = "0.4"
 http = "1.1"
 bytes = "1"
