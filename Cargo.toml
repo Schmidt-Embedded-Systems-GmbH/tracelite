@@ -3,3 +3,6 @@ members = [
     "tracelite",
     "tracelite_macro"
 ]
+
+[workspace.dependencies]
+tracelite_macro = { path = "tracelite_macro" }

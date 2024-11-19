@@ -11,9 +11,10 @@ repository = "https://github.com/Schmidt-Embedded-Systems-GmbH/tracelite"
 # enable = []
 
 [dependencies]
-tracelite_macro = "0.1.2"
+tracelite_macro = { workspace = true }
 # TODO axe unused feature (rt-multi-thread only used for examples)
 tokio = { version = "1.41", features = ["sync", "rt", "time", "macros", "net", "rt-multi-thread"] }
+# TODO is this still used
 futures = "0.3"
 log = { version = "0.4", features=["kv_std", "kv_serde"] }
 fastrand = "2.2"
