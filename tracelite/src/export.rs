@@ -79,10 +79,14 @@ impl H2GrpcExport {
         headers.insert(CONTENT_TYPE, "application/grpc".parse().unwrap());
         headers.insert("te", "trailers".parse().unwrap());
 
+        println!("[DEBUG] tracelite: connecting to host {}:{} for endpoint {}", self.host, self.port, self.grpc_method_uri);
         let tcp = tokio::net::TcpStream::connect((self.host.as_str(), self.port)).await?;
         let (mut h2, connection) = h2::client::handshake(tcp).await?;
         tokio::spawn(async move {
-            connection.await.unwrap();
+            match connection.await {
+                Ok(()) => println!("[DEBUG] tracelite: connection established"),
+                Err(err) => println!("[DEBUG] tracelite: connection failure: {err}"),
+            }
         });
 
         let mut req_headers = http::Request::new(());
