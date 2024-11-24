@@ -32,6 +32,7 @@ pub async fn tokio_export_loop(
     }
 }
 
+// TODO rename: spawn_export_task
 pub fn spawn_tokio_export_loop(
     export: impl Export,
     tracer_autoflush_interval: Duration,

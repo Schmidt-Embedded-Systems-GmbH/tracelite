@@ -1,33 +1,39 @@
 use crate::default_tracer::SpanCollection;
 use crate::tracer::{AttributeListRef, EventArgs, MaybeStaticStr, PrivateMarker, SpanArgs, SpanCollectionIndex, SpanId, SpanKind, SpanStatus, TraceId};
+use crate::AttributeValue;
 use opentelemetry_micropb::std::collector_::trace_::v1_ as collector;
 use opentelemetry_micropb::std::common_::v1_ as common;
 use opentelemetry_micropb::std::trace_::v1_ as trace;
 use opentelemetry_micropb::std::resource_::v1_ as resource;
 use micropb::MessageEncode;
+use std::i64;
 use std::io::Write;
 use std::time::SystemTime;
 
-fn map_value(v: &log::kv::Value) -> common::AnyValue {
-    let pb_v = if let Some(x) = v.to_bool() {
-        common::AnyValue_::Value::BoolValue(x)
-    } else if let Some(x) = v.to_i64() {
-        common::AnyValue_::Value::IntValue(x)
-    } else if let Some(x) = v.to_f64() {
-        common::AnyValue_::Value::DoubleValue(x)
-    } else if let Some(x) = v.to_cow_str() {
-        common::AnyValue_::Value::StringValue(x.into_owned())
-    } else {
-        todo!();
+fn map_value(v: &AttributeValue) -> Option<common::AnyValue> {
+    let mut char_buf = [0u8; std::mem::size_of::<char>()];
+
+    let pb_v = match v {
+        AttributeValue::NotPresent => return None,
+        AttributeValue::Unit     => common::AnyValue_::Value::StringValue("()".to_owned()),
+        AttributeValue::Bool(x)  => common::AnyValue_::Value::BoolValue(*x),
+        AttributeValue::Char(x)  => common::AnyValue_::Value::StringValue(x.encode_utf8(&mut char_buf).to_owned()),
+        AttributeValue::U64(x)   => common::AnyValue_::Value::IntValue(*x as i64), // NOTE unconditional conversion, x>i64::MAX will overflow into negative
+        AttributeValue::I64(x)   => common::AnyValue_::Value::IntValue(*x),
+        AttributeValue::F64(x)   => common::AnyValue_::Value::DoubleValue(*x),
+        AttributeValue::Str(x)   => common::AnyValue_::Value::StringValue((*x).to_owned()),
+        AttributeValue::Bytes(x) => common::AnyValue_::Value::BytesValue((*x).to_owned()),
+        AttributeValue::DynDisplay(x) => common::AnyValue_::Value::StringValue(x.to_string()),
+        AttributeValue::DynDebug(x)   => common::AnyValue_::Value::StringValue(format!("{x:?}")),
     };
-    common::AnyValue{ value: Some(pb_v) }
+    Some(common::AnyValue{ value: Some(pb_v) })
 }
 
-fn map_kv(kv: &(MaybeStaticStr, log::kv::Value)) -> common::KeyValue {
+fn map_kv(kv: &(MaybeStaticStr, AttributeValue)) -> Option<common::KeyValue> {
     let mut pb_kv = common::KeyValue::default();
     pb_kv.key = kv.0.to_string();
-    pb_kv.set_value(map_value(&kv.1));
-    pb_kv
+    pb_kv.set_value(map_value(&kv.1)?);
+    Some(pb_kv)
 }
 
 fn map_span_status(status: SpanStatus) -> trace::Status {
@@ -55,9 +61,9 @@ impl OtlpMicroPbConfig {
     pub fn new(service_name: &str, resource_attrs: AttributeListRef) -> Self {
         let mut resource = resource::Resource::default();
 
-        resource.attributes = [("service.name".into(), log::kv::Value::from_any(&service_name))].iter()
+        resource.attributes = [("service.name".into(), AttributeValue::from(service_name))].iter()
             .chain(resource_attrs)
-            .map(map_kv)
+            .flat_map(map_kv)
             .collect();
 
         Self {
@@ -133,7 +139,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
             };
         }
         pb_span.start_time_unix_nano = args.opened_at.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
-        pb_span.attributes = args.attributes.iter().map(map_kv).collect();
+        pb_span.attributes = args.attributes.iter().flat_map(map_kv).collect();
         if let Some(status) = args.status {
             pb_span.set_status(map_span_status(status));
         }
@@ -146,7 +152,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
 
     fn set_attributes(&mut self, idx: SpanCollectionIndex, attrs: AttributeListRef) -> Result<(), ()> {
         let Some(span) = self.get_open_span_mut(idx) else { return Ok(()) };
-        span.attributes.extend(attrs.iter().map(map_kv));
+        span.attributes.extend(attrs.iter().flat_map(map_kv));
         Ok(())
     }
 
@@ -161,7 +167,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
 
         pb_event.time_unix_nano = event.occurs_at.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
         pb_event.name = event.name.to_string();
-        pb_event.attributes = event.attributes.iter().map(map_kv).collect();
+        pb_event.attributes = event.attributes.iter().flat_map(map_kv).collect();
 
         span.events.push(pb_event);
         Ok(())

@@ -1,4 +1,44 @@
 
+#[macro_export]
+macro_rules! __attr_key {
+    ($ident:ident) => { stringify!($ident) };
+    ($str:literal) => { $str };
+}
+
+// TODO properly credit https://github.com/rust-lang/log/blob/master/src/macros.rs
+#[macro_export]
+macro_rules! __attr_value {
+    // Entrypoint
+    ($key:tt = $val:expr) => {
+        $crate::__attr_value!(($val):value)
+    };
+    ($key:tt :$capture:tt = $val:expr) => {
+        $crate::__attr_value!(($val):$capture)
+    };
+    ($key:ident =) => {
+        $crate::__attr_value!(($key):value)
+    };
+    ($key:ident :$capture:tt =) => {
+        $crate::__attr_value!(($key):$capture)
+    };
+    (($val:expr):value) => {
+        $crate::AttributeValue::from($val)
+    };
+    // Display
+    (($val:expr):%) => {
+        compile_error!("tracelite: do not use :% syntax, use :{} instead")
+    };
+    (($val:expr):{}) => {
+        $crate::AttributeValue::display(&$val)
+    };
+    // Debug
+    (($val:expr):?) => {
+        $crate::AttributeValue::debug(&$val)
+    };
+    (($val:expr):{:?}) => {
+        $crate::AttributeValue::display(&$val)
+    };
+}
 
 #[macro_export]
 macro_rules! __new_span {
@@ -16,8 +56,8 @@ macro_rules! __new_span {
                 &[
                     $(
                         (
-                            $crate::MaybeStaticStr::Static($crate::log::__log_key!($attr_key)),
-                            $crate::log::__log_value!($attr_key $(:$capture)* = $($attr_val)?)
+                            $crate::MaybeStaticStr::Static($crate::__attr_key!($attr_key)),
+                            $crate::__attr_value!($attr_key $(:$capture)* = $($attr_val)?)
                         ),
                     )*
                 ]
@@ -45,8 +85,8 @@ macro_rules! span_attributes {
             $crate::set_attributes([
                 $(
                     ((
-                        $crate::MaybeStaticStr::Static($crate::log::__log_key!($attr_key)),
-                        $crate::log::__log_value!($attr_key $(:$capture)* = $($attr_val)*)
+                        $crate::MaybeStaticStr::Static($crate::__attr_key!($attr_key)),
+                        $crate::__attr_value!($attr_key $(:$capture)* = $($attr_val)*)
                     )),
                 )*
             ])
@@ -72,8 +112,8 @@ macro_rules! __new_event {
                 &[
                     $(
                         (
-                            $crate::MaybeStaticStr::Static($crate::log::__log_key!($attr_key)),
-                            $crate::log::__log_value!($attr_key $(:$capture)* = $($attr_val)?)
+                            $crate::MaybeStaticStr::Static($crate::__attr_key!($attr_key)),
+                            $crate::__attr_value!($attr_key $(:$capture)* = $($attr_val)?)
                         ),
                     )*
                 ]
@@ -125,8 +165,6 @@ fn test_macro_expansion(){
 
 #[test]
 fn test_expand_span_attributes(){
-    // crate::add_attributes(|| [("foo".into(), 2.into())]);
-    span_attributes!(foo :% = 2, bar = 3, xoxo :serde = vec![1,2,3]);
-
-    // span_event!("foobar", info, attr(x:% = 2))
+    let foobar = 5;
+    span_attributes!(foo :{} = 2, bar = 3, foobar, foobar:?);
 }

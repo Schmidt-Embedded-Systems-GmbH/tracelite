@@ -1,5 +1,5 @@
 use std::{num::{NonZeroU128, NonZeroU64}, time::SystemTime};
-use crate::Severity;
+use crate::{AttributeValue, Severity};
 
 // ++++++++++++++++++++ ids ++++++++++++++++++++
 
@@ -56,8 +56,8 @@ pub struct PrivateMarker(());
 
 // ++++++++++++++++++++ span/event args ++++++++++++++++++++
 
-pub type AttributeListRef<'a> = &'a [(MaybeStaticStr<'a>, log::kv::Value<'a>)];
-pub type AttributeListFixedSize<'a, const N: usize> = [(MaybeStaticStr<'a>, log::kv::Value<'a>); N];
+pub type AttributeListRef<'a> = &'a [(MaybeStaticStr<'a>, AttributeValue<'a>)];
+pub type AttributeListFixedSize<'a, const N: usize> = [(MaybeStaticStr<'a>, AttributeValue<'a>); N];
 // TODO use plain fixed array with sentinel values?
 // pub type InitAttributeList<'a> = [(Key<'a>, log::kv::Value<'a>); 16];
 
@@ -111,6 +111,7 @@ pub enum SpanKind {
 }
 
 #[non_exhaustive]
+#[derive(Debug)]
 pub struct SpanArgs<'a> {
     pub name: MaybeStaticStr<'a>, 
     pub severity: Severity,
@@ -158,6 +159,7 @@ impl<'a> SpanArgs<'a> {
 }
 
 #[non_exhaustive]
+#[derive(Debug)]
 pub struct EventArgs<'a> {
     pub name: MaybeStaticStr<'a>,
     pub occurs_at: SystemTime,
@@ -225,8 +227,8 @@ impl<'a> std::fmt::Display for InstrumentationError<'a> {
         write!(f, "[ERROR] tracelite: instrumentation error: ")?;
         // TODO properly format everything
         match self {
-            Self::StrayAttributes(attr) => write!(f, "stray attributes {:?}", attr),
-            Self::StrayEvent(event_args) => write!(f, "stray event {:?}", event_args.name),
+            Self::StrayAttributes(attr) => write!(f, "stray attributes: {:?}", attr),
+            Self::StrayEvent(event_args) => write!(f, "stray event: {:?}", event_args),
             Self::StraySpanStatus(span_status) => write!(f, "stray span status: {:?}", span_status),
         }
     }
@@ -244,12 +246,14 @@ pub trait Tracer: Send + Sync + 'static {
     fn instrumentation_error(&self, err: InstrumentationError);
 }
 
-#[derive(Clone)]
+// TODO hide variants?
+#[derive(Debug, Clone)]
 pub enum Span {
     Recording(LocalSpanRef),
     NotRecording(Option<SpanParent>),
 }
 
+#[derive(Debug)]
 pub struct OwnedSpan(Option<Span>);
 
 impl Drop for OwnedSpan {
@@ -263,10 +267,13 @@ impl Drop for OwnedSpan {
 }
 
 pub mod globals {
+    use crate::AttributeValue;
+
     use super::{AttributeListFixedSize, Span, EventArgs, InstrumentationError, MaybeStaticStr, OwnedSpan, SpanStatus, Tracer};
     use tokio::task::futures::TaskLocalFuture;
     use std::future::Future;
 
+    // TODO does not work - static objects do not get dropped
     struct FlushOnDrop(pub Box<dyn Tracer>);
 
     impl Drop for FlushOnDrop {
@@ -275,7 +282,6 @@ pub mod globals {
         }
     }
 
-    // TODO does not work - static objects do not get dropped
     static TRACER: std::sync::OnceLock<FlushOnDrop> = std::sync::OnceLock::new();
 
     tokio::task_local! {
@@ -376,12 +382,12 @@ pub mod globals {
         let source2 = source.as_ref();
         EventArgs::new("exception")
             .record(&[
-                ("exception.message".into(), log::kv::Value::from_display(ex)),
+                ("exception.message".into(),AttributeValue::DynDisplay(ex)),
                 ("exception.type".into(), std::any::type_name_of_val(ex).into()),
                 // TODO include source of source, and so on
                 ("exception.source".into(), match source2 {
-                    Some(source) => log::kv::Value::from_display(source) ,
-                    None => log::kv::Value::null()
+                    Some(source) => AttributeValue::DynDisplay(source) ,
+                    None => AttributeValue::NotPresent,
                 }),
             ])
     }
@@ -394,7 +400,7 @@ pub mod globals {
     pub fn record_exception_debug(ex: &impl std::fmt::Debug){
         EventArgs::new("exception")
             .record(&[
-                ("exception.message".into(), log::kv::Value::from_debug(ex)),
+                ("exception.message".into(), AttributeValue::DynDebug(ex)),
                 ("exception.type".into(), std::any::type_name_of_val(ex).into()),
             ])
     }
