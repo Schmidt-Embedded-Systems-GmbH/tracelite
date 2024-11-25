@@ -29,6 +29,7 @@ pub fn shave(yak: usize) -> Result<(), Box<dyn Error + 'static>> {
     Ok(())
 }
 
+#[info_span]
 pub fn shave_all(yaks: usize) -> usize {
     // Constructs a new span named "shaving_yaks" at the TRACE level,
     // and a field whose key is "yaks". This is equivalent to writing:
@@ -50,7 +51,7 @@ pub fn shave_all(yaks: usize) -> usize {
             if let Err(ref error) = res {
                 // Like spans, events can also use the field initialization shorthand.
                 // In this instance, `yak` is the field being initialized.
-                error_event!("failed_to_shave_yak", error:{} = error.as_ref());
+                error_event!("failed_to_shave_yak", %error = error.as_ref());
             } else {
                 yaks_shaved += 1;
             }

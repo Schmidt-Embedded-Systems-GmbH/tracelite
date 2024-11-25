@@ -1,5 +1,7 @@
 use std::fmt::{Debug, Display};
 
+use erased_serde::Serialize;
+
 #[non_exhaustive]
 pub enum AttributeValue<'a> {
     // attribute can be dropped
@@ -24,9 +26,7 @@ pub enum AttributeValue<'a> {
 
     DynDisplay(&'a dyn Display),
     DynDebug(&'a dyn Debug),
-    // DynError(&'a dyn Error),
-
-    // Structured(&'a dyn Serialize),
+    DynSerialize(&'a dyn Serialize),
 }
 
 impl<'a> AttributeValue<'a> {
@@ -36,6 +36,9 @@ impl<'a> AttributeValue<'a> {
     }
     pub fn debug(d: &'a impl Debug) -> Self {
         Self::DynDebug(d)
+    }
+    pub fn serialize(d: &'a impl Serialize) -> Self {
+        Self::DynSerialize(d)
     }
 }
 
@@ -62,6 +65,7 @@ impl<'a> Debug for AttributeValue<'a> {
             // Self::DynDisplay(arg0) => f.debug_tuple("DynDisplay").field_with(|f| arg0.fmt(f)).finish(),
             Self::DynDebug(arg0) => f.debug_tuple("DynDebug").field(arg0).finish(),
             // Self::DynError(arg0) => f.debug_tuple("DynError").field(arg0).finish(),
+            Self::DynSerialize(_arg0) => f.debug_tuple("DynSerialize(TODO)").finish(), // TODO what to do here?
         }
     }
 }
@@ -85,14 +89,22 @@ impl<'a> From<f32    >           for AttributeValue<'a> { fn from(value: f32  ) 
 impl<'a> From<f64    >           for AttributeValue<'a> { fn from(value: f64  ) -> Self { Self::F64 (value as f64) } }
 
 /* From: reference types */
-impl<'a> From<&'a str >          for AttributeValue<'a> { fn from(value: &'a str ) -> Self { Self::Str(value) } }
-impl<'a> From<&'a [u8]>          for AttributeValue<'a> { fn from(value: &'a [u8]) -> Self { Self::Bytes(value) } }
+impl<'a> From<&'a str    >          for AttributeValue<'a> { fn from(value: &'a str    ) -> Self { Self::Str(value) } }
+impl<'a> From<&'a String >          for AttributeValue<'a> { fn from(value: &'a String ) -> Self { Self::Str(value.as_str()) } }
+impl<'a> From<&'a [u8]>             for AttributeValue<'a> { fn from(value: &'a [u8]   ) -> Self { Self::Bytes(value) } }
+impl<'a> From<&'a Vec<u8>>          for AttributeValue<'a> { fn from(value: &'a Vec<u8>) -> Self { Self::Bytes(value.as_slice()) } }
 
 impl<'a> From<&'a dyn Display  > for AttributeValue<'a> { fn from(value: &'a dyn Display  ) -> Self { Self::DynDisplay(value) } }
 impl<'a> From<&'a dyn Debug    > for AttributeValue<'a> { fn from(value: &'a dyn Debug    ) -> Self { Self::DynDebug  (value) } }
-// impl<'a> From<&'a dyn Error    > for AttributeValue<'a> { fn from(value: &'a dyn Error    ) -> Self { Self::DynError  (value) } }
-// impl<'a> From<&'a dyn Serialize> for AttributeValue<'a> { fn from(value: &'a dyn Serialize) -> Self { Self::Structured(value) } }
+impl<'a> From<&'a dyn Serialize> for AttributeValue<'a> { fn from(value: &'a dyn Serialize) -> Self { Self::DynSerialize(value) } }
 
+/* From: &&T */
+
+// impl<'a, T> From<&'a &'a T> for AttributeValue<'a>
+//     where Self: From<&'a T>, T: ?Sized
+// {
+//     fn from(value: &'a &'a T) -> Self { From::from(&**value) }
+// }
 
 /* From: structured type */
 

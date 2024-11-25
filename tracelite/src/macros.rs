@@ -1,42 +1,105 @@
 
 #[macro_export]
 macro_rules! __attr_key {
-    ($ident:ident) => { stringify!($ident) };
-    ($str:literal) => { $str };
+    ($($ident:ident).+) => {
+        $crate::MaybeStaticStr::Static(stringify!( $($ident).+ ))
+    };
+    ($str:literal) => {
+        $crate::MaybeStaticStr::Static($str)
+    };
 }
 
-// TODO properly credit https://github.com/rust-lang/log/blob/master/src/macros.rs
 #[macro_export]
-macro_rules! __attr_value {
-    // Entrypoint
-    ($key:tt = $val:expr) => {
-        $crate::__attr_value!(($val):value)
+macro_rules! __attr_muncher {
+
+    /* initial case or trailing-comma case */
+    (@out{ $(, $out:expr)* } , $($rest:tt)*) => {
+        $crate::__attr_muncher!( @out{ $(, $out)* } $($rest)* )
     };
-    ($key:tt :$capture:tt = $val:expr) => {
-        $crate::__attr_value!(($val):$capture)
+
+    /* final case (emits $out) */
+    (@out{ $(, $out:expr)* } ) => {
+        [ $($out),* ]
     };
-    ($key:ident =) => {
-        $crate::__attr_value!(($key):value)
+
+    /* from display */
+    (@out{ $(, $out:expr)* } % $key:tt = $val:expr $(, $($rest:tt)* )? ) => {
+        $crate::__attr_muncher!(
+            @out{
+                , ($crate::__attr_key!($key), $crate::AttributeValue::display(&$val))
+                $(, $out)* 
+            }
+            $( $($rest)* )?
+        )
     };
-    ($key:ident :$capture:tt =) => {
-        $crate::__attr_value!(($key):$capture)
+    (@out{ $(, $out:expr)* } % $var:ident $(, $($rest:tt)* )? ) => {
+        $crate::__attr_muncher!(
+            @out{
+                , ($crate::__attr_key!($var), $crate::AttributeValue::display(&$var))
+                $(, $out)* 
+            }
+            $( $($rest)* )?
+        )
     };
-    (($val:expr):value) => {
-        $crate::AttributeValue::from($val)
+
+    /* from debug */
+    (@out{ $(, $out:expr)* } ? $key:tt = $val:expr $(, $($rest:tt)* )? ) => {
+        $crate::__attr_muncher!(
+            @out{
+                , ($crate::__attr_key!($key), $crate::AttributeValue::debug(&$val))
+                $(, $out)* 
+            }
+            $( $($rest)* )?
+        )
     };
-    // Display
-    (($val:expr):%) => {
-        compile_error!("tracelite: do not use :% syntax, use :{} instead")
+    (@out{ $(, $out:expr)* } ? $var:ident $(, $($rest:tt)* )? ) => {
+        $crate::__attr_muncher!(
+            @out{
+                , ($crate::__attr_key!($var), $crate::AttributeValue::debug(&$var))
+                $(, $out)* 
+            }
+            $( $($rest)* )?
+        )
     };
-    (($val:expr):{}) => {
-        $crate::AttributeValue::display(&$val)
+
+    /* from serialize */
+    (@out{ $(, $out:expr)* } # $key:tt = $val:expr $(, $($rest:tt)* )? ) => {
+        $crate::__attr_muncher!(
+            @out{
+                , ($crate::__attr_key!($key), $crate::AttributeValue::serialize(&$val))
+                $(, $out)* 
+            }
+            $( $($rest)* )?
+        )
     };
-    // Debug
-    (($val:expr):?) => {
-        $crate::AttributeValue::debug(&$val)
+    (@out{ $(, $out:expr)* } # $var:ident $(, $($rest:tt)* )? ) => {
+        $crate::__attr_muncher!(
+            @out{
+                , ($crate::__attr_key!($var), $crate::AttributeValue::serialize(&$var))
+                $(, $out)* 
+            }
+            $( $($rest)* )?
+        )
     };
-    (($val:expr):{:?}) => {
-        $crate::AttributeValue::display(&$val)
+
+    /* from value */
+    (@out{ $(, $out:expr)* } $key:tt = $val:expr $(, $($rest:tt)* )? ) => {
+        $crate::__attr_muncher!(
+            @out{
+                , ($crate::__attr_key!($key), $crate::AttributeValue::from($val))
+                $(, $out)* 
+            }
+            $( $($rest)* )?
+        )
+    };
+    (@out{ $(, $out:expr)* } $var:ident $(, $($rest:tt)* )? ) => {
+        $crate::__attr_muncher!(
+            @out{
+                , ($crate::__attr_key!($var), $crate::AttributeValue::from($var))
+                $(, $out)* 
+            }
+            $( $($rest)* )?
+        )
     };
 }
 
@@ -44,24 +107,14 @@ macro_rules! __attr_value {
 macro_rules! __new_span {
     ($severity:expr, $name:literal
         $($(,)? [ $( $setter:ident ( $($setter_args:expr)* ) ),* $(,)? ])?
-        $(, $attr_key:tt $(:$capture:tt)? $(= $attr_val:expr)?)*
-        $(,)*
+        $(, $($attrs:tt)* )?
     ) => {
         {
             let mut _span = $crate::SpanArgs::new($crate::MaybeStaticStr::Static($name), $severity);
             $($(
                 _span = _span.$setter($($setter_args),*);
             )*)?
-            _span.build(
-                &[
-                    $(
-                        (
-                            $crate::MaybeStaticStr::Static($crate::__attr_key!($attr_key)),
-                            $crate::__attr_value!($attr_key $(:$capture)* = $($attr_val)?)
-                        ),
-                    )*
-                ]
-            )
+            _span.build(& $crate::__attr_muncher!(@out{} $( $($attrs)* )?) )
         }
     }
 }
@@ -80,16 +133,9 @@ macro_rules! __new_span {
 
 #[macro_export]
 macro_rules! span_attributes {
-    ( $($attr_key:tt $(:$capture:tt)? $(= $attr_val:expr)?),* $(,)* ) => {
+    ($($attrs:tt)*) => {
         {
-            $crate::set_attributes([
-                $(
-                    ((
-                        $crate::MaybeStaticStr::Static($crate::__attr_key!($attr_key)),
-                        $crate::__attr_value!($attr_key $(:$capture)* = $($attr_val)*)
-                    )),
-                )*
-            ])
+            $crate::set_attributes( $crate::__attr_muncher!(@out{} $($attrs)*) )
         }
     };
 }
@@ -99,8 +145,7 @@ macro_rules! span_attributes {
 macro_rules! __new_event {
     ($severity:expr, $name:literal
         $($(,)? [ $( $setter:ident ( $($setter_args:expr)* ) ),* $(,)? ])?
-        $(, $attr_key:tt $(:$capture:tt)? $(= $attr_val:expr)?)*
-        $(,)*
+        $(, $($attrs:tt)* )?
     ) => {
         {
             let mut _event = $crate::EventArgs::new($crate::MaybeStaticStr::Static($name));
@@ -108,16 +153,7 @@ macro_rules! __new_event {
             $($(
                 _event = _event.$setter($($setter_args),*);
             )*)?
-            _event.record(
-                &[
-                    $(
-                        (
-                            $crate::MaybeStaticStr::Static($crate::__attr_key!($attr_key)),
-                            $crate::__attr_value!($attr_key $(:$capture)* = $($attr_val)?)
-                        ),
-                    )*
-                ]
-            )
+            _event.record(& $crate::__attr_muncher!(@out{} $( $($attrs)* )?) );
         }
     }
 }
@@ -166,5 +202,5 @@ fn test_macro_expansion(){
 #[test]
 fn test_expand_span_attributes(){
     let foobar = 5;
-    span_attributes!(foo :{} = 2, bar = 3, foobar, foobar:?);
+    span_attributes!(foo = 2, bar = 3, foobar, %foobar, ?foobar, #foobar, %foobar = foobar);
 }

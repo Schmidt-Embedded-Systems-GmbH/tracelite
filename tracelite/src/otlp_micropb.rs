@@ -15,7 +15,9 @@ fn map_value(v: &AttributeValue) -> Option<common::AnyValue> {
 
     let pb_v = match v {
         AttributeValue::NotPresent => return None,
+
         AttributeValue::Unit     => common::AnyValue_::Value::StringValue("()".to_owned()),
+
         AttributeValue::Bool(x)  => common::AnyValue_::Value::BoolValue(*x),
         AttributeValue::Char(x)  => common::AnyValue_::Value::StringValue(x.encode_utf8(&mut char_buf).to_owned()),
         AttributeValue::U64(x)   => common::AnyValue_::Value::IntValue(*x as i64), // NOTE unconditional conversion, x>i64::MAX will overflow into negative
@@ -23,8 +25,10 @@ fn map_value(v: &AttributeValue) -> Option<common::AnyValue> {
         AttributeValue::F64(x)   => common::AnyValue_::Value::DoubleValue(*x),
         AttributeValue::Str(x)   => common::AnyValue_::Value::StringValue((*x).to_owned()),
         AttributeValue::Bytes(x) => common::AnyValue_::Value::BytesValue((*x).to_owned()),
-        AttributeValue::DynDisplay(x) => common::AnyValue_::Value::StringValue(x.to_string()),
-        AttributeValue::DynDebug(x)   => common::AnyValue_::Value::StringValue(format!("{x:?}")),
+
+        AttributeValue::DynDisplay(x)   => common::AnyValue_::Value::StringValue(x.to_string()),
+        AttributeValue::DynDebug(x)     => common::AnyValue_::Value::StringValue(format!("{x:?}")),
+        AttributeValue::DynSerialize(x) => common::AnyValue_::Value::StringValue(serde_json::to_string_pretty(x).ok()?), // NOTE serde_json is just a temporary solution
     };
     Some(common::AnyValue{ value: Some(pb_v) })
 }

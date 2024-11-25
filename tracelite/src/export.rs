@@ -80,6 +80,10 @@ impl H2GrpcExport {
         headers.insert("te", "trailers".parse().unwrap());
 
         println!("[DEBUG] tracelite: connecting to host {}:{} for endpoint {}", self.host, self.port, self.grpc_method_uri);
+        if self.port == 4318 {
+            println!("[WARN] tracelite: exporting to port 4318, are you sure? (opentelemetry-collector uses 4317 by-default for gRPC)");
+        }
+
         let tcp = tokio::net::TcpStream::connect((self.host.as_str(), self.port)).await?;
         let (mut h2, connection) = h2::client::handshake(tcp).await?;
         tokio::spawn(async move {

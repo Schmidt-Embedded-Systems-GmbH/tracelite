@@ -149,8 +149,15 @@ impl<'a> SpanArgs<'a> {
     pub fn parent(self, parent: impl Into<Option<SpanParent>>) -> Self {
         Self{ parent: parent.into(), ..self }
     }
-    pub fn status(self, status: SpanStatus<'a>) -> Self {
-        Self{ status: Some(status), ..self }
+    pub fn name<'b>(self, name: impl Into<MaybeStaticStr<'b>>) -> SpanArgs<'b>
+        where 'a: 'b
+    {
+        SpanArgs{ name: name.into(), ..self }
+    }
+    pub fn status<'b>(self, status: SpanStatus<'a>) -> SpanArgs<'b>
+        where 'a: 'b
+    {
+        SpanArgs{ status: Some(status), ..self }
     }
     pub fn kind(self, kind: SpanKind) -> Self {
         Self{ kind: Some(kind), ..self }
