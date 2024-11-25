@@ -37,7 +37,7 @@ impl<'a> AttributeValue<'a> {
     pub fn debug(d: &'a impl Debug) -> Self {
         Self::DynDebug(d)
     }
-    pub fn serialize(d: &'a impl Serialize) -> Self {
+    pub fn serialize(d: &'a impl serde::Serialize) -> Self {
         Self::DynSerialize(d)
     }
 }
