@@ -105,7 +105,7 @@ pub struct OtlpMicroPbSpanCollection {
 impl OtlpMicroPbSpanCollection {
     fn get_open_span_mut(&mut self, idx: SpanCollectionIndex) -> Option<&mut trace::Span> {
         let span = self.spans.get_mut(idx.0 as usize)?.as_mut()?;
-        if span.end_time_unix_nano == 0 { return None }
+        if span.end_time_unix_nano != 0 { return None }
         Some(span)
     }
 }
