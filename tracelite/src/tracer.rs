@@ -1,14 +1,63 @@
+use std::str::FromStr;
 use std::{num::{NonZeroU128, NonZeroU64}, time::SystemTime};
 use crate::{AttributeValue, Severity};
 
 // ++++++++++++++++++++ ids ++++++++++++++++++++
 
-// TODO in what endianess are bytes stored?
+// NOTE uses big-endian to store 16 bytes as u128
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TraceId(pub NonZeroU128);
 
+impl std::fmt::Display for TraceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:032x}", self.0.get())
+    }
+}
+
+impl std::str::FromStr for TraceId {
+    type Err = &'static str;
+    fn from_str(hex: &str) -> Result<Self, Self::Err> {
+        let mut bytes = [0; 16];
+        if hex.len() != bytes.len() * 2 {
+            return Err("trace-id string has wrong length")
+        }
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = match u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16) {
+                Ok(b) => b,
+                Err(_) => return Err("trace-id string contains non-hex letters")
+            }
+        }
+        let int = u128::from_be_bytes(bytes);
+        NonZeroU128::new(int).map(Self).ok_or("trace-id string has all 0 values")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SpanId(pub NonZeroU64);
+
+impl std::fmt::Display for SpanId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:016x}", self.0.get())
+    }
+}
+
+impl std::str::FromStr for SpanId {
+    type Err = &'static str;
+    fn from_str(hex: &str) -> Result<Self, Self::Err> {
+        let mut bytes = [0; 8];
+        if hex.len() != bytes.len() * 2 {
+            return Err("span-id string has wrong length")
+        }
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = match u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16) {
+                Ok(b) => b,
+                Err(_) => return Err("span-id string contains non-hex letters")
+            }
+        }
+        let int = u64::from_be_bytes(bytes);
+        NonZeroU64::new(int).map(Self).ok_or("span-id string has all 0 values")
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SpanCollectionIndex(pub u32, pub u32);
@@ -17,6 +66,33 @@ pub struct SpanCollectionIndex(pub u32, pub u32);
 pub struct RemoteSpanRef {
     pub trace_id: TraceId,
     pub span_id: SpanId,
+    pub trace_flags: u8,
+}
+
+impl RemoteSpanRef {
+    pub fn fmt_w3c_traceparent(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "00-{}-{}-{:02x}", self.trace_id, self.span_id, self.trace_flags)
+    }
+
+    pub fn try_from_w3c_traceparent(header: &str) -> Result<Self, &'static str> {
+        let mut parts = header.split('-');
+
+        let Some(version) = parts.next() else { return Err("missing '-' delimiters") };
+        if version != "00" { return Err("unsupported version") }
+
+        let Some(trace_id_hex) = parts.next() else { return Err("missing trace-id field") };
+        let Some(span_id_hex) = parts.next() else { return Err("missing parent-id field") };
+        let Some(trace_flags_hex) = parts.next() else { return Err("missing trace-flags field") };
+
+        let trace_id = TraceId::from_str(trace_id_hex)?;
+        let span_id = SpanId::from_str(span_id_hex)?;
+
+        if trace_flags_hex.len() != 2 { return Err("trace-flags string has wrong length")}
+        let trace_flags = u8::from_str_radix(trace_flags_hex, 16)
+            .map_err(|_| "trace-flags string contains non-hex letters")?;
+
+        Ok(Self { trace_id, span_id, trace_flags })
+    }
 }
 
 // TOOD make parts of this non-pub?
