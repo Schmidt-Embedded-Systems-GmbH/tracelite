@@ -6,7 +6,7 @@
 
 use std::{error::Error, io};
 
-use tracelite::export;
+use tracelite::{export, EnvHeadSampler};
 
 // use tracelite::{debug_event, info_event, warn_event};
 
@@ -40,7 +40,7 @@ pub fn shave_all(yaks: usize) -> usize {
     // without an assignment, similar to struct initializers.
     let span = new_trace_span!("shaving_yaks", yaks);
 
-    tracelite::in_span(span, || {
+    tracelite::sync_in_span(span, || {
         info_event!("shaving yaks");
 
         let mut yaks_shaved = 0;
@@ -69,20 +69,17 @@ async fn main(){
     let otlp_endpoint = std::env::var("OTLP_ENDPOINT").unwrap();
 
     DefaultTracerConfig::new(
+        EnvHeadSampler::from_env("RUST_TRACE"),
         OtlpMicroPbConfig::new("testservice", &[])
             .build(),
         export::spawn_tokio_export_loop(
-            // export::ReqwestPost{
-            //     otlp_endpoint,
-            //     client: reqwest::Client::builder().http2_prior_knowledge().build().unwrap(),
-            // },
             export::H2GrpcExport::new(&otlp_endpoint).unwrap(),
             std::time::Duration::from_secs(2),
         )
     ).install();
 
     let span = new_info_span!("shave_10_yaks");
-    tracelite::in_span(span, || {
+    tracelite::sync_in_span(span, || {
         let num_shaved = shave_all(10);
 
         info_event!("return", num_shaved)

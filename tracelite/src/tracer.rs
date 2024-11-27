@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::{num::{NonZeroU128, NonZeroU64}, time::SystemTime};
 use crate::{AttributeValue, Severity};
 
@@ -69,12 +68,16 @@ pub struct RemoteSpanRef {
     pub trace_flags: u8,
 }
 
-impl RemoteSpanRef {
-    pub fn fmt_w3c_traceparent(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl std::fmt::Display for RemoteSpanRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "00-{}-{}-{:02x}", self.trace_id, self.span_id, self.trace_flags)
     }
+}
 
-    pub fn try_from_w3c_traceparent(header: &str) -> Result<Self, &'static str> {
+impl std::str::FromStr for RemoteSpanRef {
+    type Err = &'static str;
+
+    fn from_str(header: &str) -> Result<Self, Self::Err> {
         let mut parts = header.split('-');
 
         let Some(version) = parts.next() else { return Err("missing '-' delimiters") };
@@ -95,7 +98,6 @@ impl RemoteSpanRef {
     }
 }
 
-// TOOD make parts of this non-pub?
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LocalSpanRef {
     pub trace_id: TraceId,
@@ -127,40 +129,54 @@ impl<'a> std::ops::Deref for MaybeStaticStr<'a> {
 
 // ++++++++++++++++++++ PrivateMarker ++++++++++++++++++++
 
-// TODO get rid of this entirely?
 pub struct PrivateMarker(());
 
 // ++++++++++++++++++++ span/event args ++++++++++++++++++++
 
 pub type AttributeListRef<'a> = &'a [(MaybeStaticStr<'a>, AttributeValue<'a>)];
-pub type AttributeListFixedSize<'a, const N: usize> = [(MaybeStaticStr<'a>, AttributeValue<'a>); N];
-// TODO use plain fixed array with sentinel values?
-// pub type InitAttributeList<'a> = [(Key<'a>, log::kv::Value<'a>); 16];
+pub type AttributeList<'a, const N: usize> = [(MaybeStaticStr<'a>, AttributeValue<'a>); N];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SpanParent {
+pub enum SpanAncestor {
     Local(LocalSpanRef),
     Remote(RemoteSpanRef),
 }
 
-impl From<LocalSpanRef> for SpanParent {
-    fn from(s: LocalSpanRef) -> Self { Self::Local(s) }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SpanRef {
+    Recording(LocalSpanRef),
+    // NOTE span is not recording (head-based sampling), but got a recording or remote SpanAncestor
+    NotRecording(Option<SpanAncestor>),
+    Remote(RemoteSpanRef),
 }
-impl From<RemoteSpanRef> for SpanParent {
+
+impl From<LocalSpanRef> for SpanRef {
+    fn from(s: LocalSpanRef) -> Self { Self::Recording(s) }
+}
+
+impl From<RemoteSpanRef> for SpanRef {
     fn from(s: RemoteSpanRef) -> Self { Self::Remote(s) }
 }
 
-impl SpanParent {
-    pub fn trace_id(&self) -> TraceId {
+impl SpanRef {
+    pub fn trace_and_span_id(self) -> Option<(TraceId, SpanId)> {
         match self {
-            Self::Local(span) => span.trace_id,
-            Self::Remote(span) => span.trace_id,
+            Self::Recording(span) => Some((span.trace_id, span.span_id)),
+            Self::NotRecording(ancestor) => match ancestor? {
+                SpanAncestor::Local(span) => Some((span.trace_id, span.span_id)),
+                SpanAncestor::Remote(span) => Some((span.trace_id, span.span_id)),
+            }
+            Self::Remote(span) => Some((span.trace_id, span.span_id)),
         }
     }
-    pub fn span_id(&self) -> SpanId {
+    pub fn trace_id(self) -> Option<TraceId> { self.trace_and_span_id().map(|(t, _)| t) }
+    pub fn span_id(self) -> Option<SpanId> { self.trace_and_span_id().map(|(_, s)| s) }
+
+    pub fn to_remote(self) -> Option<RemoteSpanRef> {
         match self {
-            Self::Local(span) => span.span_id,
-            Self::Remote(span) => span.span_id,
+            SpanRef::Recording(span) => Some(RemoteSpanRef{ trace_id: span.trace_id, span_id: span.span_id, trace_flags: 1 }),
+            SpanRef::NotRecording(_) => None,
+            SpanRef::Remote(span) => Some(span)
         }
     }
 }
@@ -190,39 +206,37 @@ pub enum SpanKind {
 #[derive(Debug)]
 pub struct SpanArgs<'a> {
     pub name: MaybeStaticStr<'a>, 
+    pub target: &'a str,
     pub severity: Severity,
-    pub parent: Option<SpanParent>,
+    pub parent: Option<SpanRef>,
     pub opened_at: SystemTime,
     pub attributes: AttributeListRef<'a>,
-    pub status: Option<SpanStatus<'a>>, // TODO add Unset instead
+    pub status: Option<SpanStatus<'a>>,
     pub kind: Option<SpanKind>,
 }
 
 impl<'a> SpanArgs<'a> {
     // NOTE severity is not a setable field because as tokio tracing discussions revealed, having 
     //      a default severity (log level) is a bad idea - some assume the default to be INFO, others TRACE
-    pub fn new(name: impl Into<MaybeStaticStr<'a>>, severity: Severity) -> Self {
+    pub fn new(name: impl Into<MaybeStaticStr<'a>>, severity: Severity, target: &'a str) -> Self {
         let name = name.into();
         Self {
             name,
             severity,
-            // TODO is there performance overhead here if we call parent() afterwards?
-            parent: globals::current_span().and_then(|span| match span {
-                Span::Recording(span) => Some(span.into()),
-                Span::NotRecording(parent) => parent,
-            }),
+            target,
+            parent: globals::current_span(), // TODO call this later?
             opened_at: SystemTime::now(),
             attributes: &[],
             kind: None,
             status: (severity >= Severity::Error).then(|| SpanStatus::error(name))
         }
     }
-    pub fn build<'b>(self, attributes: AttributeListRef<'b>) -> Option<OwnedSpan> {
-        let local = globals::tracer()?.open_span(SpanArgs{ attributes, ..self }, PrivateMarker(()));
-        Some(OwnedSpan(Some(Span::Recording(local))))
+    pub fn build<'b, const N: usize>(self, attributes: AttributeList<'b, N>) -> Option<OwnedSpan> {
+        let local = globals::tracer()?.open_span(SpanArgs{ attributes: &attributes, ..self }, PrivateMarker(()));
+        Some(OwnedSpan(Some(SpanRef::Recording(local))))
     }
 
-    pub fn parent(self, parent: impl Into<Option<SpanParent>>) -> Self {
+    pub fn parent(self, parent: impl Into<Option<SpanRef>>) -> Self {
         Self{ parent: parent.into(), ..self }
     }
     pub fn name<'b>(self, name: impl Into<MaybeStaticStr<'b>>) -> SpanArgs<'b>
@@ -260,11 +274,12 @@ impl<'a> EventArgs<'a> {
         }
     }
 
-    pub fn record<'b>(self, attributes: AttributeListRef<'b>,){
+    pub fn record<'b, const N: usize>(self, attributes: AttributeList<'b, N>,){
         let Some(t) = globals::tracer() else { return };
         match globals::current_span() {
-            Some(Span::Recording(local)) => t.add_event(&local, EventArgs{ attributes, ..self }),
-            Some(Span::NotRecording(_)) => {}
+            Some(SpanRef::Recording(local)) => t.add_event(&local, EventArgs{ attributes: &attributes, ..self }),
+            Some(SpanRef::NotRecording(_)) => {}
+            Some(SpanRef::Remote(_)) => unreachable!(),
             None => {
                 t.instrumentation_error(InstrumentationError::StrayEvent(self));
             }
@@ -318,6 +333,8 @@ impl<'a> std::fmt::Display for InstrumentationError<'a> {
 }
 
 pub trait Tracer: Send + Sync + 'static {
+    fn should_sample(&self, severity: Severity, target: &str) -> bool;
+
     fn open_span(&self, args: SpanArgs, _private: PrivateMarker) -> LocalSpanRef;
     fn set_attributes(&self, span: &LocalSpanRef, attrs: AttributeListRef);
     fn add_event(&self, span: &LocalSpanRef, args: EventArgs);
@@ -330,18 +347,17 @@ pub trait Tracer: Send + Sync + 'static {
 }
 
 // TODO hide variants?
-#[derive(Debug, Clone)]
-pub enum Span {
-    Recording(LocalSpanRef),
-    NotRecording(Option<SpanParent>),
-}
 
 #[derive(Debug)]
-pub struct OwnedSpan(Option<Span>);
+pub struct OwnedSpan(Option<SpanRef>);
+
+impl OwnedSpan {
+    pub fn get_ref(&self) -> SpanRef { self.0.unwrap() }
+}
 
 impl Drop for OwnedSpan {
     fn drop(&mut self) {
-        if let Some(Span::Recording(span)) = self.0.take() {
+        if let Some(SpanRef::Recording(span)) = self.0.take() {
             if let Some(f) = globals::tracer() {
                 f.drop_span(span.collect_idx, SystemTime::now(), PrivateMarker(()));
             }
@@ -351,8 +367,7 @@ impl Drop for OwnedSpan {
 
 pub mod globals {
     use crate::AttributeValue;
-
-    use super::{AttributeListFixedSize, Span, EventArgs, InstrumentationError, MaybeStaticStr, OwnedSpan, SpanStatus, Tracer};
+    use super::{AttributeList, EventArgs, InstrumentationError, MaybeStaticStr, OwnedSpan, SpanRef, SpanStatus, Tracer};
     use tokio::task::futures::TaskLocalFuture;
     use std::future::Future;
 
@@ -380,7 +395,7 @@ pub mod globals {
         TRACER.get().map(|f| &*f.0)
     }
 
-    pub fn current_span() -> Option<Span> {
+    pub fn current_span() -> Option<SpanRef> {
         CURRENT_SPAN.try_with(|owned| owned.0.clone()).ok().flatten()
     }
 
@@ -414,7 +429,7 @@ pub mod globals {
 
     impl<F: Future + Sized> InSpan for F {}
 
-    pub fn in_span<R>(span: impl Into<Option<OwnedSpan>>, f: impl FnOnce() -> R) -> R {
+    pub fn sync_in_span<R>(span: impl Into<Option<OwnedSpan>>, f: impl FnOnce() -> R) -> R {
         if let Some(span) = span.into() {
             CURRENT_SPAN.sync_scope(span, f)
         } else {
@@ -423,14 +438,14 @@ pub mod globals {
     }
 
     /// NOTE you will likely want to use span_attributes!() instead
-    // TODO do we need FixedSize here?
-    pub fn set_attributes<'a, const N: usize>(attrs: AttributeListFixedSize<'a, N>){
+    pub fn set_attributes<'a, const N: usize>(attrs: AttributeList<'a, N>) {
         let Some(t) = tracer() else { return };
         match current_span() {
-            Some(Span::Recording(span)) => {
+            Some(SpanRef::Recording(span)) => {
                 t.set_attributes(&span, &attrs);
             }
-            Some(Span::NotRecording(_)) => {}
+            Some(SpanRef::NotRecording(_)) => {}
+            Some(SpanRef::Remote(_)) => unreachable!(),
             None => {
                 let err = InstrumentationError::StrayAttributes(&attrs);
                 t.instrumentation_error(err);
@@ -441,10 +456,11 @@ pub mod globals {
     pub fn set_status(status: SpanStatus<'_>){
         let Some(t) = tracer() else { return };
         match current_span() {
-            Some(Span::Recording(span)) => {
+            Some(SpanRef::Recording(span)) => {
                 t.set_span_status(&span, status);
             }
-            Some(Span::NotRecording(_)) => {}
+            Some(SpanRef::NotRecording(_)) => {}
+            Some(SpanRef::Remote(_)) => unreachable!(),
             None => {
                 let err = InstrumentationError::StraySpanStatus(status);
                 t.instrumentation_error(err);
@@ -464,7 +480,7 @@ pub mod globals {
         let source = ex.source();
         let source2 = source.as_ref();
         EventArgs::new("exception")
-            .record(&[
+            .record([
                 ("exception.message".into(),AttributeValue::DynDisplay(ex)),
                 ("exception.type".into(), std::any::type_name_of_val(ex).into()),
                 // TODO include source of source, and so on
@@ -482,7 +498,7 @@ pub mod globals {
 
     pub fn record_exception_debug(ex: &impl std::fmt::Debug){
         EventArgs::new("exception")
-            .record(&[
+            .record([
                 ("exception.message".into(), AttributeValue::DynDebug(ex)),
                 ("exception.type".into(), std::any::type_name_of_val(ex).into()),
             ])

@@ -110,11 +110,11 @@ macro_rules! __new_span {
         $(, $($attrs:tt)* )?
     ) => {
         {
-            let mut _span = $crate::SpanArgs::new($crate::MaybeStaticStr::Static($name), $severity);
+            let mut _span = $crate::SpanArgs::new($crate::MaybeStaticStr::Static($name), $severity, std::module_path!());
             $($(
                 _span = _span.$setter($($setter_args),*);
             )*)?
-            _span.build(& $crate::__attr_muncher!(@out{} $( $($attrs)* )?) )
+            _span.build( $crate::__attr_muncher!(@out{} $( $($attrs)* )?) )
         }
     }
 }
@@ -153,7 +153,7 @@ macro_rules! __new_event {
             $($(
                 _event = _event.$setter($($setter_args),*);
             )*)?
-            _event.record(& $crate::__attr_muncher!(@out{} $( $($attrs)* )?) );
+            _event.record( $crate::__attr_muncher!(@out{} $( $($attrs)* )?) );
         }
     }
 }
@@ -202,5 +202,5 @@ fn test_macro_expansion(){
 #[test]
 fn test_expand_span_attributes(){
     let foobar = 5;
-    span_attributes!(foo = 2, bar = 3, foobar, %foobar, ?foobar, #foobar, %foobar = foobar);
+    span_attributes!(foo = 2, bar = 3, foobar, %foobar, ?foobar, #foobar, ?foobar = vec![1,2]);
 }

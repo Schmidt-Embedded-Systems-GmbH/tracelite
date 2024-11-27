@@ -194,7 +194,7 @@ fn gen_block(
         }
     } else {
         quote_spanned!(block.span() =>
-            tracelite::in_span(
+            tracelite::sync_in_span(
                 tracelite::#span_macro!(#func_name, #args),
                 || #block
             )

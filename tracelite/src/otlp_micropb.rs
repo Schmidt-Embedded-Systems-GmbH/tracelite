@@ -129,9 +129,9 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         let mut pb_span = trace::Span::default();
 
         // TODO should we use little-endian bytes?
-        pb_span.trace_id = trace_id.0.get().to_le_bytes().into_iter().collect();
-        pb_span.span_id = span_id.0.get().to_le_bytes().into_iter().collect();
-        pb_span.parent_span_id = args.parent.map(|r| r.span_id().0.get().to_le_bytes().into_iter().collect()).unwrap_or_default();
+        pb_span.trace_id = trace_id.0.get().to_be_bytes().into_iter().collect();
+        pb_span.span_id = span_id.0.get().to_be_bytes().into_iter().collect();
+        pb_span.parent_span_id = args.parent.and_then(|r| Some(r.span_id()?.0.get().to_be_bytes().into_iter().collect())).unwrap_or_default();
         pb_span.name = args.name.to_string();
         if let Some(kind) = args.kind {
             pb_span.kind = match kind {
@@ -141,6 +141,8 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
                 SpanKind::Producer => trace::Span_::SpanKind::Producer,
                 SpanKind::Consumer => trace::Span_::SpanKind::Consumer,
             };
+        } else {
+            pb_span.kind = trace::Span_::SpanKind::Unspecified;
         }
         pb_span.start_time_unix_nano = args.opened_at.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
         pb_span.attributes = args.attributes.iter().flat_map(map_kv).collect();

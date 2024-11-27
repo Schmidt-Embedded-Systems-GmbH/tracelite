@@ -17,7 +17,7 @@ pub use tracer::*;
 pub use tracer::globals::*;
 
 mod default_tracer;
-pub use default_tracer::{DefaultTracer, DefaultTracerConfig};
+pub use default_tracer::{EnvHeadSampler, DefaultTracer, DefaultTracerConfig};
 
 pub mod export;
 
