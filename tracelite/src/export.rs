@@ -1,4 +1,3 @@
-use futures::FutureExt;
 use http::header::CONTENT_TYPE;
 use http::Method;
 
@@ -112,13 +111,10 @@ impl H2GrpcExport {
 impl Export for H2GrpcExport {
     fn export<'a>(&'a self, data: &'a [u8]) -> impl std::future::Future<Output = ()> + Send + 'a {
         let data = bytes::Bytes::copy_from_slice(data);
-        self.try_send(data)
-            .inspect(|result| {
-                if let Err(err) = result {
-                    println!("[ERROR] tracelite: failed to export batch: {err}");
-                }
-            })
-            .then(|_| async { () })
-            
+        async {
+            if let Err(err) = self.try_send(data).await {
+                println!("[ERROR] tracelite: failed to export batch: {err}");
+            }
+        }
     }
 }

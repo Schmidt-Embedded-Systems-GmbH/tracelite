@@ -16,12 +16,10 @@ erased-serde = "0.4"
 serde = "1" 
 fastrand = "2.2" # TODO get rid of this?
 
+# log = { version = "0.4", features=["kv_std", "kv_serde"] }
 
 # TODO axe unused feature (rt-multi-thread only used for examples)
 tokio = { version = "1.41", features = ["sync", "rt", "time", "macros", "net", "rt-multi-thread"] }
-# TODO is this still used
-futures = "0.3"
-# log = { version = "0.4", features=["kv_std", "kv_serde"] }
 micropb = "0.1"
 opentelemetry-micropb = { version = "0.1.1" }
 h2 = "0.4"
