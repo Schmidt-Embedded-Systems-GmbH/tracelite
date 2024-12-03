@@ -14,7 +14,6 @@ use tracelite::{export, EnvHeadSampler};
 // the `#[tracing::instrument]` attribute creates and enters a span
 // every time the instrumented function is called. The span is named after
 // the function or method. Parameters passed to the function are recorded as fields.
-#[info_span(yak)]
 pub fn shave(yak: usize) -> Result<(), Box<dyn Error + 'static>> {
     info_event!("hello! I'm gonna shave a yak.", excitement = "yay!");
     if yak == 3 {

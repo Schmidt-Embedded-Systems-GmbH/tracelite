@@ -259,18 +259,20 @@ impl<'a> SpanArgs<'a> {
 #[derive(Debug)]
 pub struct EventArgs<'a> {
     pub name: MaybeStaticStr<'a>,
+    pub severity: Option<Severity>,
+    pub target: Option<&'a str>,
     pub occurs_at: SystemTime,
     pub attributes: AttributeListRef<'a>,
-    pub severity: Option<Severity>,
 }
 
 impl<'a> EventArgs<'a> {
-    pub fn new(name: impl Into<MaybeStaticStr<'a>>) -> Self {
-        Self {
+    pub fn new(name: impl Into<MaybeStaticStr<'a>>, severity: Option<Severity>, target: Option<&'a str>) -> Self {
+        Self{
             name: name.into(),
             occurs_at: SystemTime::now(),
             attributes: &[],
-            severity: None,
+            severity,
+            target,
         }
     }
 
@@ -366,7 +368,7 @@ impl Drop for OwnedSpan {
 }
 
 pub mod globals {
-    use crate::AttributeValue;
+    use crate::{AttributeValue, Severity};
     use super::{AttributeList, EventArgs, InstrumentationError, MaybeStaticStr, OwnedSpan, SpanRef, SpanStatus, Tracer};
     use tokio::task::futures::TaskLocalFuture;
     use std::future::Future;
@@ -476,10 +478,10 @@ pub mod globals {
         set_status(SpanStatus::Ok);
     }
 
-    pub fn record_exception(ex: &impl std::error::Error){
+    fn _record_exception(ex: &impl std::error::Error, severity: Option<Severity>){
         let source = ex.source();
         let source2 = source.as_ref();
-        EventArgs::new("exception")
+        EventArgs::new("exception", severity, None)
             .record([
                 ("exception.message".into(),AttributeValue::DynDisplay(ex)),
                 ("exception.type".into(), std::any::type_name_of_val(ex).into()),
@@ -491,21 +493,29 @@ pub mod globals {
             ])
     }
 
+    pub fn record_exception(ex: &impl std::error::Error){
+        _record_exception(ex, None);
+    }
+
     pub fn record_exception_as_error<'a>(ex: &impl std::error::Error, msg: impl Into<MaybeStaticStr<'a>>){
-        record_exception(ex);
+        _record_exception(ex, Some(Severity::Error));
         mark_span_as_error(msg);
     }
 
-    pub fn record_exception_debug(ex: &impl std::fmt::Debug){
-        EventArgs::new("exception")
+    fn _record_exception_debug(ex: &impl std::fmt::Debug, severity: Option<Severity>){
+        EventArgs::new("exception", severity, None)
             .record([
                 ("exception.message".into(), AttributeValue::DynDebug(ex)),
                 ("exception.type".into(), std::any::type_name_of_val(ex).into()),
             ])
     }
 
+    pub fn record_exception_debug(ex: &impl std::fmt::Debug){
+        _record_exception_debug(ex, None);
+    }
+
     pub fn record_exception_debug_as_error<'a>(ex: &impl std::fmt::Debug, msg: impl Into<MaybeStaticStr<'a>>){
-        record_exception_debug(ex);
+        _record_exception_debug(ex, Some(Severity::Error));
         mark_span_as_error(msg);
     }
 

@@ -105,17 +105,20 @@ macro_rules! __attr_muncher {
 
 #[macro_export]
 macro_rules! __new_span {
-    ($severity:expr, $name:literal
-        $($(,)? [ $( $setter:ident ( $($setter_args:expr)* ) ),* $(,)? ])?
-        $(, $($attrs:tt)* )?
-    ) => {
+    ($severity:expr, $name:literal $(,$($rest:tt)*)?) => {
         {
-            let mut _span = $crate::SpanArgs::new($crate::MaybeStaticStr::Static($name), $severity, std::module_path!());
-            $($(
-                _span = _span.$setter($($setter_args),*);
-            )*)?
-            _span.build( $crate::__attr_muncher!(@out{} $( $($attrs)* )?) )
+            let mut _span_args = $crate::SpanArgs::new($crate::MaybeStaticStr::Static($name), $severity, std::module_path!());
+            $crate::__new_span!(@munch(_span_args) $($($rest)*)?)
         }
+    };
+    (@munch($args:ident) $setter:ident( $($setter_args:expr)* )  $(,$($rest:tt)*)? ) => {
+        {
+            $args = $args.$setter($($setter_args),*);
+            $crate::__new_span!(@munch($args) $($($rest)*)?)
+        }
+    };
+    (@munch($args:ident) $($attrs:tt)* ) => {
+        $args.build( $crate::__attr_muncher!(@out{} $($attrs)*) )
     }
 }
 
@@ -143,18 +146,21 @@ macro_rules! span_attributes {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __new_event {
-    ($severity:expr, $name:literal
-        $($(,)? [ $( $setter:ident ( $($setter_args:expr)* ) ),* $(,)? ])?
-        $(, $($attrs:tt)* )?
-    ) => {
+    ($severity:expr, $name:literal $(,$($rest:tt)*)?) => {
         {
-            let mut _event = $crate::EventArgs::new($crate::MaybeStaticStr::Static($name));
-            _event.severity = $severity;
-            $($(
-                _event = _event.$setter($($setter_args),*);
-            )*)?
-            _event.record( $crate::__attr_muncher!(@out{} $( $($attrs)* )?) );
+            let mut _event_args = $crate::EventArgs::new($crate::MaybeStaticStr::Static($name), $severity, Some(std::module_path!()));
+            _event_args.severity = $severity;
+            $crate::__new_event!(@munch(_event_args) $($($rest)*)?)
         }
+    };
+    (@munch($args:ident) $setter:ident( $($setter_args:expr)* )  $(,$($rest:tt)*)? ) => {
+        {
+            $args = $span_args.$setter($($setter_args),*);
+            $crate::__new_event!(@munch($args) $($($rest)*)?);
+        }
+    };
+    (@munch($args:ident) $($attrs:tt)* ) => {
+        $args.record( $crate::__attr_muncher!(@out{} $($attrs)*) );
     }
 }
 
@@ -178,8 +184,12 @@ fn test_macro_expansion(){
     let a = 2;
     new_info_span!(
         "overwritten_name"
-        [kind(crate::SpanKind::Internal)],
-        a,
+        , name("real_name")
+        , %a
+        , a
+        // @kind(crate::SpanKind::Internal),
+        // , a
+        // a,
         // a : % = 1 
         // name("real_name"),
     );
