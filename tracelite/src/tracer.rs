@@ -441,6 +441,7 @@ pub mod globals {
 
     /// NOTE you will likely want to use span_attributes!() instead
     pub fn set_attributes<'a, const N: usize>(attrs: AttributeList<'a, N>) {
+        if N == 0 { return }
         let Some(t) = tracer() else { return };
         match current_span() {
             Some(SpanRef::Recording(span)) => {

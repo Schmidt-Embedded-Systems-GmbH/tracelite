@@ -3,10 +3,9 @@
 
 #[macro_use] extern crate tracelite;
 
-
+use tracelite::EnvHeadSampler;
 use std::{error::Error, io};
 
-use tracelite::{export, EnvHeadSampler};
 
 // use tracelite::{debug_event, info_event, warn_event};
 
@@ -60,6 +59,11 @@ pub fn shave_all(yaks: usize) -> usize {
         yaks_shaved
     })
 } 
+
+#[info_span(?arg1, ?arg2, %_return,)]
+async fn foo(arg1: u32, arg2: u32) -> impl std::fmt::Display {
+    arg1 * arg1
+}
 
 #[tokio::main]
 async fn main(){

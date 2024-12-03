@@ -170,9 +170,40 @@ fn gen_block(
     block: &Block,
     async_context: bool,
     async_keyword: bool,
-    args: &proc_macro2::TokenStream,
+    args: &proc_macro2::TokenStream, // TODO can we avoid unnecessary clones of this?
 ) -> proc_macro2::TokenStream {
     let span_macro = syn::Ident::new(span_macro, proc_macro2::Span::call_site());
+
+    let mut arg_tokens: Vec<_> = args.clone().into_iter().collect();
+    let return_capture_pos = arg_tokens.iter()
+        .position(|t| match t {
+            proc_macro2::TokenTree::Ident(ident) => ident.to_string().as_str() == "_return",
+            _ => false,
+        });
+    
+    let return_capture = if let Some(return_capture_pos) = return_capture_pos {
+        let preceding_comma_pos = arg_tokens[..return_capture_pos].iter().enumerate().rev()
+            .find_map(|(i, t)| match t {
+                proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ',' => Some(i),
+                _ => None,
+            })
+            .unwrap_or(0);
+        let following_comma_pos = arg_tokens.iter().enumerate().skip(return_capture_pos)
+            .find_map(|(i, t)| match t {
+                proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ',' => Some(i),
+                _ => None,
+            })
+            .unwrap_or(arg_tokens.len() - 1);
+
+        proc_macro2::TokenStream::from_iter(arg_tokens.drain(preceding_comma_pos..=following_comma_pos))
+    } else {
+        proc_macro2::TokenStream::new()
+    };
+    
+    // now args does contains the _return capture anymore
+    let args = proc_macro2::TokenStream::from_iter(arg_tokens);
+
+
     // Generate the instrumented function body.
     // If the function is an `async fn`, this will wrap it in an async block.
     // Otherwise, this will enter the span and then perform the rest of the body.
@@ -180,7 +211,12 @@ fn gen_block(
         let block = quote_spanned!(block.span() => {
             let __current_span = tracelite::#span_macro!(#func_name, #args);
             tracelite::InSpan::in_span(
-                async move { #block },
+                async move {
+                    let _return = #block;
+                    if false { return _return } // this avoids any mess-ups with type interference
+                    tracelite::span_attributes!(#return_capture);
+                    _return
+                },
                 __current_span,
             )
         });
@@ -196,7 +232,12 @@ fn gen_block(
         quote_spanned!(block.span() =>
             tracelite::sync_in_span(
                 tracelite::#span_macro!(#func_name, #args),
-                || #block
+                || {
+                    let _return = #block;
+                    if false { return _return } // this avoids any mess-ups with type interference
+                    tracelite::span_attributes!(#return_capture);
+                    _return
+                }
             )
         )
     }
