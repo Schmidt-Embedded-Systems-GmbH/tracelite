@@ -5,4 +5,4 @@ members = [
 ]
 
 [workspace.dependencies]
-tracelite_macro = { version = "0.1.4", path = "tracelite_macro" }
+tracelite_macro = { version = "0.1.5", path = "tracelite_macro" }
