@@ -107,25 +107,41 @@ pub struct LocalSpanRef {
 
 // ++++++++++++++++++++ MaybeStaticStr ++++++++++++++++++++
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub enum MaybeStaticStr<'a> {
     Static(&'static str),
     Borrowed(&'a str),
+    FormatArgs(std::fmt::Arguments<'a>)
 }
 
 impl From<&'static str> for MaybeStaticStr<'static> {
     fn from(s: &'static str) -> Self { Self::Static(s) }
 }
 
-impl<'a> std::ops::Deref for MaybeStaticStr<'a> {
-    type Target = str;
-    fn deref(&self) -> &Self::Target {
+impl<'a> From<std::fmt::Arguments<'a>> for MaybeStaticStr<'a> {
+    fn from(a: std::fmt::Arguments<'a>) -> Self { Self::FormatArgs(a) }
+}
+
+impl<'a> std::fmt::Display for MaybeStaticStr<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MaybeStaticStr::Static(s) => &**s,
-            MaybeStaticStr::Borrowed(s) => &**s,
+            MaybeStaticStr::Static(x) => x.fmt(f),
+            MaybeStaticStr::Borrowed(x) => x.fmt(f),
+            MaybeStaticStr::FormatArgs(x) => x.fmt(f),
         }
     }
 }
+
+
+// impl<'a> std::ops::Deref for MaybeStaticStr<'a> {
+//     type Target = str;
+//     fn deref(&self) -> &Self::Target {
+//         match self {
+//             MaybeStaticStr::Static(s) => &**s,
+//             MaybeStaticStr::Borrowed(s) => &**s,
+//         }
+//     }
+// }
 
 // ++++++++++++++++++++ PrivateMarker ++++++++++++++++++++
 
@@ -181,7 +197,7 @@ impl SpanRef {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum SpanStatus<'a> {
     Ok,
     Error(MaybeStaticStr<'a>),
