@@ -107,6 +107,7 @@ pub struct LocalSpanRef {
 
 // ++++++++++++++++++++ MaybeStaticStr ++++++++++++++++++++
 
+/// TODO with the addition of FormatArgs, the name does not fit anymore
 #[derive(Debug, Clone, Copy)]
 pub enum MaybeStaticStr<'a> {
     Static(&'static str),
@@ -131,17 +132,6 @@ impl<'a> std::fmt::Display for MaybeStaticStr<'a> {
         }
     }
 }
-
-
-// impl<'a> std::ops::Deref for MaybeStaticStr<'a> {
-//     type Target = str;
-//     fn deref(&self) -> &Self::Target {
-//         match self {
-//             MaybeStaticStr::Static(s) => &**s,
-//             MaybeStaticStr::Borrowed(s) => &**s,
-//         }
-//     }
-// }
 
 // ++++++++++++++++++++ PrivateMarker ++++++++++++++++++++
 
@@ -218,14 +208,16 @@ pub enum SpanKind {
     Consumer,
 }
 
-#[non_exhaustive]
+// #[non_exhaustive]
 #[derive(Debug)]
 pub struct SpanArgs<'a> {
     pub name: MaybeStaticStr<'a>, 
-    pub target: &'a str,
-    pub severity: Severity,
+    pub target: Option<&'a str>,
+    pub severity: Option<Severity>,
+
     pub parent: Option<SpanRef>,
     pub opened_at: SystemTime,
+
     pub attributes: AttributeListRef<'a>,
     pub status: Option<SpanStatus<'a>>,
     pub kind: Option<SpanKind>,
@@ -234,7 +226,7 @@ pub struct SpanArgs<'a> {
 impl<'a> SpanArgs<'a> {
     // NOTE severity is not a setable field because as tokio tracing discussions revealed, having 
     //      a default severity (log level) is a bad idea - some assume the default to be INFO, others TRACE
-    pub fn new(name: impl Into<MaybeStaticStr<'a>>, severity: Severity, target: &'a str) -> Self {
+    pub fn new(name: impl Into<MaybeStaticStr<'a>>, severity: Option<Severity>, target: Option<&'a str>) -> Self {
         let name = name.into();
         Self {
             name,
@@ -244,7 +236,7 @@ impl<'a> SpanArgs<'a> {
             opened_at: SystemTime::now(),
             attributes: &[],
             kind: None,
-            status: (severity >= Severity::Error).then(|| SpanStatus::error(name))
+            status: (severity >= Some(Severity::Error)).then(|| SpanStatus::error(name))
         }
     }
     pub fn build<'b, const N: usize>(self, attributes: AttributeList<'b, N>) -> Option<OwnedSpan> {

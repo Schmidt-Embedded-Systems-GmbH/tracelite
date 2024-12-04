@@ -107,14 +107,20 @@ macro_rules! __attr_muncher {
 macro_rules! __new_span {
     ($severity:expr, $name:literal $(,$($rest:tt)*)?) => {
         {
-            let mut _span_args = $crate::SpanArgs::new($crate::MaybeStaticStr::Static($name), $severity, std::module_path!());
+            let mut _span_args = $crate::SpanArgs::new(
+                $crate::MaybeStaticStr::from($name),
+                $severity,
+                Some(std::module_path!()),
+            );
             $crate::__new_span!(@munch(_span_args) $($($rest)*)?)
         }
     };
     (@munch($args:ident) $setter:ident( $($setter_args:expr)* )  $(,$($rest:tt)*)? ) => {
         {
-            $args = $args.$setter($($setter_args),*);
-            $crate::__new_span!(@munch($args) $($($rest)*)?)
+            // yes, we need to expand it in this absurd way to allow for use of format_args!()
+            (|_span_args: $crate::SpanArgs|{
+                $crate::__new_span!(@munch(_span_args) $($($rest)*)?)
+            })($args.$setter($($setter_args),*))
         }
     };
     (@munch($args:ident) $($attrs:tt)* ) => {
@@ -122,17 +128,18 @@ macro_rules! __new_span {
     }
 }
 
-#[macro_export] macro_rules! new_trace_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Trace ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_trace2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Trace ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_debug_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Debug ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_debug2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Debug2), $name $($rest)*) } }
-#[macro_export] macro_rules! new_info_span   { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Info  ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_info2_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Info2 ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_warn_span   { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Warn  ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_warn2_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Warn2 ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_error_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Error ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_error2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Error2), $name $($rest)*) } }
-#[macro_export] macro_rules! new_fatal_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(($crate::Severity::Fatal ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_span        { ($name:literal $($rest:tt)*) => { $crate::__new_span!(None, $name $($rest)*) } }
+#[macro_export] macro_rules! new_trace_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Trace ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_trace2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Trace ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_debug_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Debug ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_debug2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Debug2), $name $($rest)*) } }
+#[macro_export] macro_rules! new_info_span   { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Info  ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_info2_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Info2 ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_warn_span   { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Warn  ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_warn2_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Warn2 ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_error_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Error ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_error2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Error2), $name $($rest)*) } }
+#[macro_export] macro_rules! new_fatal_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Fatal ), $name $($rest)*) } }
 
 #[macro_export]
 macro_rules! span_attributes {
@@ -148,23 +155,26 @@ macro_rules! span_attributes {
 macro_rules! __new_event {
     ($severity:expr, $name:literal $(,$($rest:tt)*)?) => {
         {
-            let mut _event_args = $crate::EventArgs::new($crate::MaybeStaticStr::Static($name), $severity, Some(std::module_path!()));
-            _event_args.severity = $severity;
+            let mut _event_args = $crate::EventArgs::new(
+                $crate::MaybeStaticStr::from($name),
+                $severity,
+                Some(std::module_path!())
+            );
             $crate::__new_event!(@munch(_event_args) $($($rest)*)?)
         }
     };
     (@munch($args:ident) $setter:ident( $($setter_args:expr)* )  $(,$($rest:tt)*)? ) => {
-        {
-            $args = $span_args.$setter($($setter_args),*);
-            $crate::__new_event!(@munch($args) $($($rest)*)?);
-        }
+        // yes, we need to expand it in this absurd way to allow for use of format_args!()
+        (|_event_args: $crate::EventArgs|{
+            $crate::__new_event!(@munch(_event_args) $($($rest)*)?)
+        })($args.$setter($($setter_args),*))
     };
     (@munch($args:ident) $($attrs:tt)* ) => {
         $args.record( $crate::__attr_muncher!(@out{} $($attrs)*) );
     }
 }
 
-#[macro_export] macro_rules! event { ($name:literal $($rest:tt)*) => { $crate::__new_event!(None, $name $($rest)*) } }
+#[macro_export] macro_rules! event        { ($name:literal $($rest:tt)*) => { $crate::__new_event!(None, $name $($rest)*) } }
 #[macro_export] macro_rules! trace_event  { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Trace ), $name $($rest)*) } }
 #[macro_export] macro_rules! trace2_event { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Trace2), $name $($rest)*) } }
 #[macro_export] macro_rules! debug_event  { ($name:literal $($rest:tt)*) => { $crate::__new_event!(Some($crate::Severity::Debug ), $name $($rest)*) } }

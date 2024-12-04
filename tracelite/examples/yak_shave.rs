@@ -13,6 +13,8 @@ use std::{error::Error, io};
 // the `#[tracing::instrument]` attribute creates and enters a span
 // every time the instrumented function is called. The span is named after
 // the function or method. Parameters passed to the function are recorded as fields.
+#[info_span( kind(tracelite::SpanKind::Internal), name(format_args!("shave {yak}")), kind(tracelite::SpanKind::Internal), yak)]
+// #[info_span(name(format_args!("shave {yak}")), name("foo"))]
 pub fn shave(yak: usize) -> Result<(), Box<dyn Error + 'static>> {
     info_event!("hello! I'm gonna shave a yak.", excitement = "yay!");
     if yak == 3 {
@@ -27,7 +29,7 @@ pub fn shave(yak: usize) -> Result<(), Box<dyn Error + 'static>> {
     Ok(())
 }
 
-#[info_span]
+#[info_span(name("SHAVE_ALL"))]
 pub fn shave_all(yaks: usize) -> usize {
     // Constructs a new span named "shaving_yaks" at the TRACE level,
     // and a field whose key is "yaks". This is equivalent to writing:
