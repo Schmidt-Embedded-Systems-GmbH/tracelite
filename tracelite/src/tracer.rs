@@ -260,16 +260,30 @@ impl<'a> SpanArgs<'a> {
     pub fn kind(self, kind: SpanKind) -> Self {
         Self{ kind: Some(kind), ..self }
     }
+}
 
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum Exception<'a> {
+    Error{
+        object: &'a (dyn std::error::Error + 'a),
+        type_name: &'static str
+    },
+    DebugFmt{
+        object: &'a (dyn std::fmt::Debug + 'a),
+        type_name: &'static str
+    }
 }
 
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct EventArgs<'a> {
+    // NOTE is `exception` is set, this may be interpreted as the span status message
     pub name: MaybeStaticStr<'a>,
     pub severity: Option<Severity>,
     pub target: Option<&'a str>,
     pub occurs_at: SystemTime,
+    pub exception: Option<Exception<'a>>,
     pub attributes: AttributeListRef<'a>,
 }
 
@@ -278,16 +292,36 @@ impl<'a> EventArgs<'a> {
         Self{
             name: name.into(),
             occurs_at: SystemTime::now(),
-            attributes: &[],
             severity,
             target,
+            exception: None,
+            attributes: &[],
         }
     }
 
+    pub fn exception<'b>(self, object: &'b (impl std::error::Error + 'b)) -> EventArgs<'b>
+        where 'a: 'b
+    {
+        let type_name = std::any::type_name_of_val(object);
+        EventArgs{ exception: Some(Exception::Error{ object, type_name }), ..self }
+    }
+
+    pub fn exception_from_debug<'b>(self, object: &'b (impl std::fmt::Debug + 'b)) -> EventArgs<'b>
+        where 'a: 'b
+    {
+        let type_name = std::any::type_name_of_val(object);
+        EventArgs{ exception: Some(Exception::DebugFmt{ object, type_name }), ..self }
+    }
+    
     pub fn record<'b, const N: usize>(self, attributes: AttributeList<'b, N>,){
         let Some(t) = globals::tracer() else { return };
         match globals::current_span() {
-            Some(SpanRef::Recording(local)) => t.add_event(&local, EventArgs{ attributes: &attributes, ..self }),
+            Some(SpanRef::Recording(local)) => {
+                if self.severity >= Some(Severity::Error) {
+                    t.set_span_status(&local, SpanStatus::Error(self.name));
+                }
+                t.add_event(&local, EventArgs{ attributes: &attributes, ..self })
+            },
             Some(SpanRef::NotRecording(_)) => {}
             Some(SpanRef::Remote(_)) => unreachable!(),
             None => {
@@ -356,8 +390,6 @@ pub trait Tracer: Send + Sync + 'static {
     fn instrumentation_error(&self, err: InstrumentationError);
 }
 
-// TODO hide variants?
-
 #[derive(Debug)]
 pub struct OwnedSpan(Option<SpanRef>);
 
@@ -376,8 +408,8 @@ impl Drop for OwnedSpan {
 }
 
 pub mod globals {
-    use crate::{AttributeValue, Severity};
     use super::{AttributeList, EventArgs, InstrumentationError, MaybeStaticStr, OwnedSpan, SpanRef, SpanStatus, Tracer};
+    use crate::{Severity};
     use tokio::task::futures::TaskLocalFuture;
     use std::future::Future;
 
@@ -464,7 +496,7 @@ pub mod globals {
         }
     }
 
-    pub fn set_status(status: SpanStatus<'_>){
+    pub fn set_span_status(status: SpanStatus<'_>){
         let Some(t) = tracer() else { return };
         match current_span() {
             Some(SpanRef::Recording(span)) => {
@@ -479,88 +511,127 @@ pub mod globals {
         }
     }
 
-    pub fn mark_span_as_error<'a>(msg: impl Into<MaybeStaticStr<'a>>){
-        set_status(SpanStatus::error(msg));
+    pub fn set_span_status_ok(){
+        set_span_status(SpanStatus::Ok);
     }
 
-    pub fn mark_span_as_ok(){
-        set_status(SpanStatus::Ok);
+    pub fn set_span_status_error<'a>(msg: impl Into<MaybeStaticStr<'a>>){
+        set_span_status(SpanStatus::error(msg));
     }
 
-    fn _record_exception(ex: &impl std::error::Error, severity: Option<Severity>){
-        let source = ex.source();
-        let source2 = source.as_ref();
-        EventArgs::new("exception", severity, None)
-            .record([
-                ("exception.message".into(),AttributeValue::DynDisplay(ex)),
-                ("exception.type".into(), std::any::type_name_of_val(ex).into()),
-                // TODO include source of source, and so on
-                ("exception.source".into(), match source2 {
-                    Some(source) => AttributeValue::DynDisplay(source) ,
-                    None => AttributeValue::NotPresent,
-                }),
-            ])
-    }
+    pub trait RecordException<E: std::error::Error>: Sized {
+        #[doc(hidden)]
+        fn get_exception(&self) -> Option<&E>;
 
-    pub fn record_exception(ex: &impl std::error::Error){
-        _record_exception(ex, None);
-    }
-
-    pub fn record_exception_as_error<'a>(ex: &impl std::error::Error, msg: impl Into<MaybeStaticStr<'a>>){
-        _record_exception(ex, Some(Severity::Error));
-        mark_span_as_error(msg);
-    }
-
-    fn _record_exception_debug(ex: &impl std::fmt::Debug, severity: Option<Severity>){
-        EventArgs::new("exception", severity, None)
-            .record([
-                ("exception.message".into(), AttributeValue::DynDebug(ex)),
-                ("exception.type".into(), std::any::type_name_of_val(ex).into()),
-            ])
-    }
-
-    pub fn record_exception_debug(ex: &impl std::fmt::Debug){
-        _record_exception_debug(ex, None);
-    }
-
-    pub fn record_exception_debug_as_error<'a>(ex: &impl std::fmt::Debug, msg: impl Into<MaybeStaticStr<'a>>){
-        _record_exception_debug(ex, Some(Severity::Error));
-        mark_span_as_error(msg);
-    }
-
-    pub trait RecordException<E> {
-        fn record(self) -> Self
-            where E: std::error::Error;
-        fn record_as_error<'a>(self, msg: impl Into<MaybeStaticStr<'a>>) -> Self
-            where E: std::error::Error;
-
-        fn record_debug(self) -> Self
-            where E: std::fmt::Debug;
-        fn record_debug_as_error<'a>(self, msg: impl Into<MaybeStaticStr<'a>>) -> Self
-            where E: std::fmt::Debug;
-    }
-
-    impl<T, E> RecordException<E> for Result<T, E> {
-        fn record(self) -> Self
-            where E: std::error::Error
-        {
-            self.inspect_err(|ex| record_exception(&ex))
+        #[doc(hidden)]
+        fn _record_error_ext<'a>(self,
+            name: impl Into<MaybeStaticStr<'a>>,
+            severity: Option<Severity>,
+        ) -> Self {
+            if let Some(ex) = self.get_exception() {
+                EventArgs::new(name.into(), severity, None)
+                    .exception(ex)
+                    .record([]);
+            }
+            self
         }
-        fn record_as_error<'a>(self, msg: impl Into<MaybeStaticStr<'a>>) -> Self
-            where E: std::error::Error
-        {
-            self.inspect_err(|ex| record_exception_as_error(&ex, msg.into()))
+
+        fn record_error_as_debug<'a>(self, name: impl Into<MaybeStaticStr<'a>>) -> Self {
+            self._record_error_ext(name, Some(Severity::Debug))
         }
-        fn record_debug(self) -> Self
-            where E: std::fmt::Debug
-        {
-            self.inspect_err(|ex| record_exception_debug(&ex))
+        fn record_error_as_info<'a>(self, name: impl Into<MaybeStaticStr<'a>>) -> Self {
+            self._record_error_ext(name, Some(Severity::Info))
         }
-        
-        fn record_debug_as_error<'a>(self, msg: impl Into<MaybeStaticStr<'a>>) -> Self
-            where E: std::fmt::Debug
-        {
-            self.inspect_err(|ex| record_exception_debug_as_error(&ex, msg.into()))
+        fn record_error_as_warn<'a>(self, name: impl Into<MaybeStaticStr<'a>>) -> Self {
+            self._record_error_ext(name, Some(Severity::Warn))
         }
+        fn record_error<'a>(self, name: impl Into<MaybeStaticStr<'a>>) -> Self {
+            self._record_error_ext(name, Some(Severity::Error))
+        }
+        fn record_error_as_fatal<'a>(self, name: impl Into<MaybeStaticStr<'a>>) -> Self {
+            self._record_error_ext(name, Some(Severity::Fatal))
+        }
+
+        fn record_exception(self) -> Self {
+            self._record_error_ext("exception", None)
+        }
+        fn record_exception_as_trace(self) -> Self {
+            self._record_error_ext("exception", Some(Severity::Trace))
+        }
+        fn record_exception_as_debug(self) -> Self {
+            self._record_error_ext("exception", Some(Severity::Debug))
+        }
+        fn record_exception_as_info(self) -> Self {
+            self._record_error_ext("exception", Some(Severity::Info))
+        }
+        fn record_exception_as_warn(self) -> Self {
+            self._record_error_ext("exception", Some(Severity::Warn))
+        }
+    }
+
+    impl<E: std::error::Error> RecordException<E> for Option<E> {
+        fn get_exception(&self) -> Option<&E> { self.as_ref() }
+    }
+
+    impl<T, E: std::error::Error> RecordException<E> for Result<T, E> {
+        fn get_exception(&self) -> Option<&E> { self.as_ref().err() }
+    }
+
+    pub trait RecordExceptionDebugFmt<E: std::fmt::Debug>: Sized {
+        #[doc(hidden)]
+        fn get_exception(&self) -> Option<&E>;
+
+        #[doc(hidden)]
+        fn _record_error_ext<'a>(self,
+            name: impl Into<MaybeStaticStr<'a>>,
+            severity: Option<Severity>,
+        ) -> Self {
+            if let Some(ex) = self.get_exception() {
+                EventArgs::new(name.into(), severity, None)
+                    .exception_from_debug(ex)
+                    .record([]);
+            }
+            self
+        }
+
+        fn record_dbgfmt_error_as_debug<'a>(self, name: impl Into<MaybeStaticStr<'a>>) -> Self {
+            self._record_error_ext(name, Some(Severity::Debug))
+        }
+        fn record_dbgfmt_error_as_info<'a>(self, name: impl Into<MaybeStaticStr<'a>>) -> Self {
+            self._record_error_ext(name, Some(Severity::Info))
+        }
+        fn record_dbgfmt_error_as_warn<'a>(self, name: impl Into<MaybeStaticStr<'a>>) -> Self {
+            self._record_error_ext(name, Some(Severity::Warn))
+        }
+        fn record_dbgfmt_error<'a>(self, name: impl Into<MaybeStaticStr<'a>>) -> Self {
+            self._record_error_ext(name, Some(Severity::Error))
+        }
+        fn record_dbgfmt_error_as_fatal<'a>(self, name: impl Into<MaybeStaticStr<'a>>) -> Self {
+            self._record_error_ext(name, Some(Severity::Fatal))
+        }
+
+        fn record_dbgfmt_exception(self) -> Self {
+            self._record_error_ext("exception", None)
+        }
+        fn record_dbgfmt_exception_as_trace(self) -> Self {
+            self._record_error_ext("exception", Some(Severity::Trace))
+        }
+        fn record_dbgfmt_exception_as_debug(self) -> Self {
+            self._record_error_ext("exception", Some(Severity::Debug))
+        }
+        fn record_dbgfmt_exception_as_info(self) -> Self {
+            self._record_error_ext("exception", Some(Severity::Info))
+        }
+        fn record_dbgfmt_exception_as_warn(self) -> Self {
+            self._record_error_ext("exception", Some(Severity::Warn))
+        }
+    }
+
+    impl<E: std::fmt::Debug> RecordExceptionDebugFmt<E> for Option<E> {
+        fn get_exception(&self) -> Option<&E> { self.as_ref() }
+    }
+
+    impl<T, E: std::fmt::Debug> RecordExceptionDebugFmt<E> for Result<T, E> {
+        fn get_exception(&self) -> Option<&E> { self.as_ref().err() }
     }
 }

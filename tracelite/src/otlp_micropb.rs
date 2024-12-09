@@ -1,12 +1,11 @@
 use crate::default_tracer::SpanCollection;
 use crate::tracer::{AttributeListRef, EventArgs, MaybeStaticStr, PrivateMarker, SpanArgs, SpanCollectionIndex, SpanId, SpanKind, SpanStatus, TraceId};
-use crate::AttributeValue;
+use crate::{AttributeValue, Exception};
 use opentelemetry_micropb::std::collector_::trace_::v1_ as collector;
 use opentelemetry_micropb::std::common_::v1_ as common;
 use opentelemetry_micropb::std::trace_::v1_ as trace;
 use opentelemetry_micropb::std::resource_::v1_ as resource;
 use micropb::MessageEncode;
-use std::i64;
 use std::io::Write;
 use std::time::SystemTime;
 
@@ -173,7 +172,24 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
 
         pb_event.time_unix_nano = event.occurs_at.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
         pb_event.name = event.name.to_string();
-        pb_event.attributes = event.attributes.iter().flat_map(map_kv).collect();
+        match event.exception {
+            Some(Exception::Error{ object, type_name }) => {
+                // TODO add exception.source_chain for Error::source()?
+                // TODO some support for backtrace? https://doc.rust-lang.org/std/error/struct.Request.html
+                pb_event.attributes.extend([
+                    (MaybeStaticStr::from("exception.message"), AttributeValue::DynDisplay(&object)),
+                    (MaybeStaticStr::from("exception.type"), AttributeValue::from(type_name)),
+                ].iter().flat_map(map_kv))
+            }
+            Some(Exception::DebugFmt{ object, type_name }) => {
+                pb_event.attributes.extend([
+                    (MaybeStaticStr::from("exception.message"), AttributeValue::DynDebug(&object)),
+                    (MaybeStaticStr::from("exception.type"), AttributeValue::from(type_name)),
+                ].iter().flat_map(map_kv))
+            }
+            None => todo!(),
+        }
+        pb_event.attributes.extend(event.attributes.iter().flat_map(map_kv));
 
         span.events.push(pb_event);
         Ok(())
