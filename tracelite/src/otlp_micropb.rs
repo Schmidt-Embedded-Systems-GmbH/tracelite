@@ -187,7 +187,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
                     (MaybeStaticStr::from("exception.type"), AttributeValue::from(type_name)),
                 ].iter().flat_map(map_kv))
             }
-            None => todo!(),
+            None => {}
         }
         pb_event.attributes.extend(event.attributes.iter().flat_map(map_kv));
 
