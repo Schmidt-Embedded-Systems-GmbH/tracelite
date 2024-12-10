@@ -1,6 +1,6 @@
 [package]
 name = "tracelite"
-version = "0.1.14"
+version = "0.1.15"
 edition = "2021"
 description = "An alternative to the tracing crate which is specialized for OpenTelemetry traces"
 license = "MIT"
