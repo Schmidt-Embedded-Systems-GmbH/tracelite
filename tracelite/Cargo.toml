@@ -6,23 +6,50 @@ description = "An alternative to the tracing crate which is specialized for Open
 license = "MIT"
 repository = "https://github.com/Schmidt-Embedded-Systems-GmbH/tracelite"
 
-# [features]
-# default = ["enable", "reqwest", "log", "opentelemetry-micropb"]
-# enable = []
+[features]
+default = ["serde", "h2"]
+serde = ["dep:serde", "dep:erased-serde", "dep:serde_json"]
+h2 = ["dep:h2", "dep:http", "dep:bytes"]
+# tokio = ["dep:tokio"]
 
 [dependencies]
 tracelite_macro = { workspace = true }
-erased-serde = "0.4" 
-serde = "1" 
 fastrand = "2.2" # TODO get rid of this?
-
-# log = { version = "0.4", features=["kv_std", "kv_serde"] }
-
-# TODO axe unused feature (rt-multi-thread only used for examples)
-tokio = { version = "1.41", features = ["sync", "rt", "time", "macros", "net", "rt-multi-thread"] }
+# TODO add feature
 micropb = "0.1"
 opentelemetry-micropb = { version = "0.1.1" }
-h2 = "0.4"
-http = "1.1"
-bytes = "1"
-serde_json= "1"
+
+# ----- serde -----
+
+[dependencies.serde]
+version = "1"
+optional = true 
+
+[dependencies.erased-serde]
+version = "0.4"
+optional = true
+
+[dependencies.serde_json]
+version = "1"
+optional = true 
+
+# ----- tokio export loop -----
+
+[dependencies.tokio]
+# TODO axe unused feature (rt-multi-thread only used for examples)
+version = "1.41"
+features = ["sync", "rt", "time", "macros", "net", "rt-multi-thread"]
+# optional = true
+
+# ----- H2GrpcExporter -----
+[dependencies.h2]
+version = "0.4"
+optional = true
+
+[dependencies.http]
+version = "1.1"
+optional = true
+
+[dependencies.bytes]
+version = "1"
+optional = true

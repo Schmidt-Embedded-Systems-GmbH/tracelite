@@ -1,57 +1,6 @@
+use super::SpanExporter;
 use http::header::CONTENT_TYPE;
 use http::Method;
-
-use super::tracer::globals;
-use std::time::Duration;
-
-pub trait Export: Send + 'static {
-    fn export<'a>(&'a self, data: &'a [u8]) -> impl std::future::Future<Output = ()> + Send + 'a;
-}
-
-pub async fn tokio_export_loop(
-    mut batch_receiver: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
-    export: impl Export,
-    tracer_autoflush_interval: Duration,
-){
-    loop {
-        let autoflush = tokio::time::sleep(tracer_autoflush_interval);
-        tokio::select! {
-            opt = batch_receiver.recv() => {
-                println!("[DEBUG] tracelite: background worker received batch or dead sender");
-                match opt {
-                    Some(batch) => export.export(&batch).await,
-                    None => return // channel senders dropped
-                }
-            }
-            _ = autoflush => {
-                println!("[DEBUG] tracelite: background worker performs autoflush");
-                globals::tracer().map(|t| t.flush());
-            }
-        };
-    }
-}
-
-// TODO rename: spawn_export_task
-pub fn spawn_tokio_export_loop(
-    export: impl Export,
-    tracer_autoflush_interval: Duration,
-) -> impl Fn(Vec<u8>)
-{
-    let (batch_sender, batch_receiver) = tokio::sync::mpsc::unbounded_channel();
-
-    tokio::spawn(async move {
-        tokio_export_loop(batch_receiver, export, tracer_autoflush_interval).await
-    });
-
-    move |batch| {
-        // TODO how to react to dropped receiver?
-        let batch_size = batch.len();
-        match batch_sender.send(batch) {
-            Ok(()) => println!("[DEBUG] tracelite: sent batch of size {batch_size} to background worker"),
-            Err(err) => eprintln!("[ERROR] tracelite: failed to send batch to background worker: {err}")
-        }
-    }
-}
 
 // TODO keep connection open
 // TODO get rid of unwraps
@@ -59,6 +8,17 @@ pub struct H2GrpcExport {
     grpc_method_uri: http::Uri,
     host: String,
     port: u16,
+}
+
+impl SpanExporter for H2GrpcExport {
+    fn export<'a>(&'a self, data: &'a [u8]) -> impl std::future::Future<Output = ()> + Send + 'a {
+        let data = bytes::Bytes::copy_from_slice(data);
+        async {
+            if let Err(err) = self.try_send(data).await {
+                println!("[ERROR] tracelite: failed to export batch: {err}");
+            }
+        }
+    }
 }
 
 impl H2GrpcExport {
@@ -105,16 +65,5 @@ impl H2GrpcExport {
         println!("[DEBUG] tracelite: received response (status {}) with headers/trailers {:?}", resp.status(), resp.headers());
 
         Ok(())
-    }
-}
-
-impl Export for H2GrpcExport {
-    fn export<'a>(&'a self, data: &'a [u8]) -> impl std::future::Future<Output = ()> + Send + 'a {
-        let data = bytes::Bytes::copy_from_slice(data);
-        async {
-            if let Err(err) = self.try_send(data).await {
-                println!("[ERROR] tracelite: failed to export batch: {err}");
-            }
-        }
     }
 }

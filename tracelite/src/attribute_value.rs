@@ -1,6 +1,7 @@
+#[cfg(feature = "serde")]
+use erased_serde::Serialize;
 use std::fmt::{Debug, Display};
 
-use erased_serde::Serialize;
 
 #[non_exhaustive]
 pub enum AttributeValue<'a> {
@@ -19,24 +20,21 @@ pub enum AttributeValue<'a> {
     Str(&'a str),
     Bytes(&'a [u8]),
 
-    // PathBuf(PathBuf)
-    // Url(Url)
-    // Duration(std::time::Duration),
-    // Instant(std::time::Instant),
-
     DynDisplay(&'a dyn Display),
     DynDebug(&'a dyn Debug),
+    #[cfg(feature = "serde")]
     DynSerialize(&'a dyn Serialize),
 }
 
 impl<'a> AttributeValue<'a> {
-    // we need these cuz of funny coercion rules.... sometimes constructing values from macros just doesnt work
+    // we need these cuz of weird coercion rules.... sometimes constructing values from macros just doesnt work
     pub fn display(d: &'a impl Display) -> Self {
         Self::DynDisplay(d)
     }
     pub fn debug(d: &'a impl Debug) -> Self {
         Self::DynDebug(d)
     }
+    #[cfg(feature = "serde")]
     pub fn serialize(d: &'a impl serde::Serialize) -> Self {
         Self::DynSerialize(d)
     }
@@ -64,7 +62,7 @@ impl<'a> Debug for AttributeValue<'a> {
             // TODO(https://github.com/rust-lang/rust/issues/117729): this replaces DisplayAsDebug workaround
             // Self::DynDisplay(arg0) => f.debug_tuple("DynDisplay").field_with(|f| arg0.fmt(f)).finish(),
             Self::DynDebug(arg0) => f.debug_tuple("DynDebug").field(arg0).finish(),
-            // Self::DynError(arg0) => f.debug_tuple("DynError").field(arg0).finish(),
+            #[cfg(feature = "serde")]
             Self::DynSerialize(_arg0) => f.debug_tuple("DynSerialize(TODO)").finish(), // TODO what to do here?
         }
     }
@@ -96,20 +94,5 @@ impl<'a> From<&'a Vec<u8>>          for AttributeValue<'a> { fn from(value: &'a 
 
 impl<'a> From<&'a dyn Display  > for AttributeValue<'a> { fn from(value: &'a dyn Display  ) -> Self { Self::DynDisplay(value) } }
 impl<'a> From<&'a dyn Debug    > for AttributeValue<'a> { fn from(value: &'a dyn Debug    ) -> Self { Self::DynDebug  (value) } }
+#[cfg(feature="serde")]
 impl<'a> From<&'a dyn Serialize> for AttributeValue<'a> { fn from(value: &'a dyn Serialize) -> Self { Self::DynSerialize(value) } }
-
-/* From: &&T */
-
-// impl<'a, T> From<&'a &'a T> for AttributeValue<'a>
-//     where Self: From<&'a T>, T: ?Sized
-// {
-//     fn from(value: &'a &'a T) -> Self { From::from(&**value) }
-// }
-
-/* From: structured type */
-
-// impl<'a, T> From<&'a T> for AttributeValue<'a>
-//     where T: serde::Serialize
-// {
-//     fn from(value: &'a T) -> Self { Self::Structured(value) }
-// }

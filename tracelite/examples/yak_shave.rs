@@ -3,7 +3,6 @@
 
 #[macro_use] extern crate tracelite;
 
-use tracelite::EnvHeadSampler;
 use std::{error::Error, io};
 
 
@@ -13,7 +12,7 @@ use std::{error::Error, io};
 // the `#[tracing::instrument]` attribute creates and enters a span
 // every time the instrumented function is called. The span is named after
 // the function or method. Parameters passed to the function are recorded as fields.
-#[info_span( kind(tracelite::SpanKind::Internal), name(format_args!("shave {yak}")), kind(tracelite::SpanKind::Internal), yak)]
+#[info_span( kind(tracelite::SpanKind::Internal), baggage_entry("foo", "bar"), on_start(|_| {}), name(format_args!("shave {yak}")), kind(tracelite::SpanKind::Internal), yak, ?foo=vec![1,2,3])]
 // #[info_span(name(format_args!("shave {yak}")), name("foo"))]
 pub fn shave(yak: usize) -> Result<(), Box<dyn Error + 'static>> {
     info_event!("hello! I'm gonna shave a yak.", excitement = "yay!");
@@ -69,15 +68,18 @@ async fn foo(arg1: u32, arg2: u32) -> impl std::fmt::Display {
 
 #[tokio::main]
 async fn main(){
-    use tracelite::{DefaultTracerConfig, OtlpMicroPbConfig, export};
+    use tracelite::{DefaultTracerConfig, export};
+    use tracelite::sampling::{AlwaysSampler, EnvStaticSampler};
+    use tracelite::span_collections::OtlpMicroPbConfig; 
 
     let otlp_endpoint = std::env::var("OTLP_ENDPOINT").unwrap();
 
     DefaultTracerConfig::new(
-        EnvHeadSampler::from_env("RUST_TRACE"),
+        EnvStaticSampler::from_env("RUST_TRACE"),
+        AlwaysSampler,
         OtlpMicroPbConfig::new("testservice", &[])
             .build(),
-        export::spawn_tokio_export_loop(
+        export::spawn_tokio_export_task(
             export::H2GrpcExport::new(&otlp_endpoint).unwrap(),
             std::time::Duration::from_secs(2),
         )

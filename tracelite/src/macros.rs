@@ -2,10 +2,10 @@
 #[macro_export]
 macro_rules! __attr_key {
     ($($ident:ident).+) => {
-        $crate::MaybeStaticStr::Static(stringify!( $($ident).+ ))
+        $crate::Text::Static(stringify!( $($ident).+ ))
     };
     ($str:literal) => {
-        $crate::MaybeStaticStr::Static($str)
+        $crate::Text::Static($str)
     };
 }
 
@@ -106,25 +106,30 @@ macro_rules! __attr_muncher {
 #[macro_export]
 macro_rules! __new_span {
     ($severity:expr, $name:literal $(,$($rest:tt)*)?) => {
-        {
-            let mut _span_args = $crate::SpanArgs::new(
-                $crate::MaybeStaticStr::from($name),
-                $severity,
-                Some(std::module_path!()),
-            );
-            $crate::__new_span!(@munch(_span_args) $($($rest)*)?)
+        if let Some(tracer) = $crate::tracer().ok() {
+            let target = Some(std::module_path!());
+            let severity = $severity;
+
+            if tracer.is_enabled(target, severity) {
+                let mut _span_args = $crate::SpanBuilder::new($crate::Text::from($name), target, severity);
+                Some($crate::__new_span!(@munch(tracer; _span_args) $($($rest)*)?))
+            } else {
+                None
+            }
+        } else {
+            None
         }
     };
-    (@munch($args:ident) $setter:ident( $($setter_args:expr)* )  $(,$($rest:tt)*)? ) => {
+    (@munch($tracer:ident; $args:ident) $setter:ident( $($setter_args:expr),* $(,)? )  $(,$($rest:tt)*)? ) => {
         {
             // yes, we need to expand it in this absurd way to allow for use of format_args!()
-            (|_span_args: $crate::SpanArgs|{
-                $crate::__new_span!(@munch(_span_args) $($($rest)*)?)
+            (|_span_args: $crate::SpanBuilder|{
+                $crate::__new_span!(@munch($tracer; _span_args) $($($rest)*)?)
             })($args.$setter($($setter_args),*))
         }
     };
-    (@munch($args:ident) $($attrs:tt)* ) => {
-        $args.build( $crate::__attr_muncher!(@out{} $($attrs)*) )
+    (@munch($tracer:ident; $args:ident) $($attrs:tt)* ) => {
+        $args.start($tracer, $crate::__attr_muncher!(@out{} $($attrs)*) )
     }
 }
 
@@ -154,23 +159,24 @@ macro_rules! span_attributes {
 #[macro_export]
 macro_rules! __new_event {
     ($severity:expr, $name:literal $(,$($rest:tt)*)?) => {
-        {
-            let mut _event_args = $crate::EventArgs::new(
-                $crate::MaybeStaticStr::from($name),
-                $severity,
-                Some(std::module_path!())
-            );
-            $crate::__new_event!(@munch(_event_args) $($($rest)*)?)
+        if let Some(tracer) = $crate::tracer().ok() {
+            let target = Some(std::module_path!());
+            let severity = $severity;
+
+            if tracer.is_enabled(target, severity) {
+                let mut _event_args = $crate::EventBuilder::new($crate::Text::from($name), target, severity);
+                $crate::__new_event!(@munch(tracer; _event_args) $($($rest)*)?);
+            }
         }
     };
-    (@munch($args:ident) $setter:ident( $($setter_args:expr)* )  $(,$($rest:tt)*)? ) => {
+    (@munch($tracer:ident; $args:ident) $setter:ident( $($setter_args:expr)* )  $(,$($rest:tt)*)? ) => {
         // yes, we need to expand it in this absurd way to allow for use of format_args!()
         (|_event_args: $crate::EventArgs|{
-            $crate::__new_event!(@munch(_event_args) $($($rest)*)?)
+            $crate::__new_event!(@munch($tracer; _event_args) $($($rest)*)?)
         })($args.$setter($($setter_args),*))
     };
-    (@munch($args:ident) $($attrs:tt)* ) => {
-        $args.record( $crate::__attr_muncher!(@out{} $($attrs)*) );
+    (@munch($tracer:ident; $args:ident) $($attrs:tt)* ) => {
+        $args.add_to_current_span($tracer, $crate::__attr_muncher!(@out{} $($attrs)*) );
     }
 }
 

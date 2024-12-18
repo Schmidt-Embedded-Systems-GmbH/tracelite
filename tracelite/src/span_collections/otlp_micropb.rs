@@ -1,5 +1,4 @@
-use crate::default_tracer::SpanCollection;
-use crate::tracer::{AttributeListRef, EventArgs, MaybeStaticStr, PrivateMarker, SpanArgs, SpanCollectionIndex, SpanId, SpanKind, SpanStatus, TraceId};
+use crate::tracer::{AttributeListRef, EventArgs, Text, SpanArgs, SpanCollectionIndex, SpanId, SpanKind, SpanStatus, TraceId};
 use crate::{AttributeValue, Exception};
 use opentelemetry_micropb::std::collector_::trace_::v1_ as collector;
 use opentelemetry_micropb::std::common_::v1_ as common;
@@ -7,7 +6,10 @@ use opentelemetry_micropb::std::trace_::v1_ as trace;
 use opentelemetry_micropb::std::resource_::v1_ as resource;
 use micropb::MessageEncode;
 use std::io::Write;
+use std::num::NonZeroU32;
 use std::time::SystemTime;
+
+use super::SpanCollection;
 
 fn map_value(v: &AttributeValue) -> Option<common::AnyValue> {
     let mut char_buf = [0u8; std::mem::size_of::<char>()];
@@ -27,12 +29,13 @@ fn map_value(v: &AttributeValue) -> Option<common::AnyValue> {
 
         AttributeValue::DynDisplay(x)   => common::AnyValue_::Value::StringValue(x.to_string()),
         AttributeValue::DynDebug(x)     => common::AnyValue_::Value::StringValue(format!("{x:?}")),
+        #[cfg(feature = "serde")]
         AttributeValue::DynSerialize(x) => common::AnyValue_::Value::StringValue(serde_json::to_string_pretty(x).ok()?), // NOTE serde_json is just a temporary solution
     };
     Some(common::AnyValue{ value: Some(pb_v) })
 }
 
-fn map_kv(kv: &(MaybeStaticStr, AttributeValue)) -> Option<common::KeyValue> {
+fn map_kv(kv: &(Text, AttributeValue)) -> Option<common::KeyValue> {
     let mut pb_kv = common::KeyValue::default();
     pb_kv.key = kv.0.to_string();
     pb_kv.set_value(map_value(&kv.1)?);
@@ -103,7 +106,7 @@ pub struct OtlpMicroPbSpanCollection {
 
 impl OtlpMicroPbSpanCollection {
     fn get_open_span_mut(&mut self, idx: SpanCollectionIndex) -> Option<&mut trace::Span> {
-        let span = self.spans.get_mut(idx.0 as usize)?.as_mut()?;
+        let span = self.spans.get_mut(idx.1 as usize)?.as_mut()?;
         if span.end_time_unix_nano != 0 { return None }
         Some(span)
     }
@@ -130,7 +133,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         // TODO should we use little-endian bytes?
         pb_span.trace_id = trace_id.0.get().to_be_bytes().into_iter().collect();
         pb_span.span_id = span_id.0.get().to_be_bytes().into_iter().collect();
-        pb_span.parent_span_id = args.parent.and_then(|r| Some(r.span_id()?.0.get().to_be_bytes().into_iter().collect())).unwrap_or_default();
+        pb_span.parent_span_id = args.parent_span_id.map(|id| id.0.get().to_be_bytes().into_iter().collect()).unwrap_or_default();
         pb_span.name = args.name.to_string();
         if let Some(kind) = args.kind {
             pb_span.kind = match kind {
@@ -152,7 +155,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         debug_assert!(self.spans[idx as usize].is_none());
         self.spans[idx as usize] = Some(pb_span);
 
-        Ok(SpanCollectionIndex(idx, 0))
+        Ok(SpanCollectionIndex(NonZeroU32::MIN, idx))
     }
 
     fn set_attributes(&mut self, idx: SpanCollectionIndex, attrs: AttributeListRef) -> Result<(), ()> {
@@ -177,14 +180,14 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
                 // TODO add exception.source_chain for Error::source()?
                 // TODO some support for backtrace? https://doc.rust-lang.org/std/error/struct.Request.html
                 pb_event.attributes.extend([
-                    (MaybeStaticStr::from("exception.message"), AttributeValue::DynDisplay(&object)),
-                    (MaybeStaticStr::from("exception.type"), AttributeValue::from(type_name)),
+                    (Text::from("exception.message"), AttributeValue::DynDisplay(&object)),
+                    (Text::from("exception.type"), AttributeValue::from(type_name)),
                 ].iter().flat_map(map_kv))
             }
-            Some(Exception::DebugFmt{ object, type_name }) => {
+            Some(Exception::Dbgfmt{ object, type_name }) => {
                 pb_event.attributes.extend([
-                    (MaybeStaticStr::from("exception.message"), AttributeValue::DynDebug(&object)),
-                    (MaybeStaticStr::from("exception.type"), AttributeValue::from(type_name)),
+                    (Text::from("exception.message"), AttributeValue::DynDebug(&object)),
+                    (Text::from("exception.type"), AttributeValue::from(type_name)),
                 ].iter().flat_map(map_kv))
             }
             None => {}
@@ -204,13 +207,12 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         idx: SpanCollectionIndex,
         dropped_at: SystemTime,
         export: impl Fn(Self::Exportable),
-        _private: PrivateMarker
     ) {
-        let Some(mut span) = self.spans[idx.0 as usize].take() else {
+        let Some(mut span) = self.spans[idx.1 as usize].take() else {
             eprintln!("[ERROR] tracelite: dropped span which does not exist");
             return // no span here TODO should log error
         };
-        self.free_indicies.push(idx.0);
+        self.free_indicies.push(idx.1);
 
         if span.end_time_unix_nano == 0 {
             span.end_time_unix_nano = dropped_at.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
