@@ -1,17 +1,18 @@
+use crate::clocks::Clock;
+use crate::id_generators::IdGenerator;
 use crate::sampling::{Sampler, SamplingDecision, StaticSampler};
 use crate::span_collections::SpanCollection;
 use crate::spinlock::Spinlock;
 use crate::{tracer::*, Severity};
-use std::num::{NonZeroU128, NonZeroU64};
 use std::sync::Arc;
-use std::time::SystemTime;
 
 fn default_instrumentation_error_handler(err: InstrumentationError){
     eprintln!("[ERROR] tracelite: instrumentation error: {err}");
 }
 
-
-pub struct DefaultTracerConfig<SS, S, SC, X> {
+pub struct DefaultTracerConfig<C, IG, SS, S, SC, X> {
+    clock: C,
+    id_generator: IG,
     static_sampler: SS,
     sampler: S,
     collection: SC,
@@ -20,11 +21,13 @@ pub struct DefaultTracerConfig<SS, S, SC, X> {
     on_instrumentation_error: Box<dyn Fn(InstrumentationError) + Send + Sync>
 }
 
-impl<SS, S, SC, X> DefaultTracerConfig<SS, S, SC, X>
-    where SS: StaticSampler, S: Sampler, SC: SpanCollection, X: Fn(SC::Exportable) + Send + Sync + 'static
+impl<C, IG, SS, S, SC, X> DefaultTracerConfig<C, IG, SS, S, SC, X>
+    where C: Clock, IG: IdGenerator, SS: StaticSampler, S: Sampler, SC: SpanCollection, X: Fn(SC::Exportable) + Send + Sync + 'static
 {
-    pub fn new(static_sampler: SS, sampler: S, collection: SC, export_sink: X) -> Self {
+    pub fn new(clock: C, id_generator: IG, static_sampler: SS, sampler: S, collection: SC, export_sink: X) -> Self {
         Self{
+            clock,
+            id_generator,
             static_sampler,
             sampler,
             collection,
@@ -36,6 +39,8 @@ impl<SS, S, SC, X> DefaultTracerConfig<SS, S, SC, X>
 
     pub fn install(self){
         let tracer = DefaultTracer{
+            clock: self.clock,
+            id_generator: self.id_generator,
             static_sampler: self.static_sampler,
             sampler: self.sampler,
             spans: Spinlock::new(self.collection),
@@ -55,18 +60,20 @@ impl<SS, S, SC, X> DefaultTracerConfig<SS, S, SC, X>
     }
 }
 
-pub struct DefaultTracer<SS, S, C, X> {
+pub struct DefaultTracer<C, IG, SS, S, SC, X> {
+    clock: C,
+    id_generator: IG,
     static_sampler: SS,
     sampler: S,
     // NOTE this gets indexed by SpanContext::collect_idx
-    spans: Spinlock<C>,
+    spans: Spinlock<SC>,
     export_sink: X,
     default_span_kind: Option<SpanKind>,
     on_instrumentation_error: Box<dyn Fn(InstrumentationError) + Send + Sync>
 }
 
-impl<SS, S, SC, X> Tracer for DefaultTracer<SS, S, SC, X>
-    where SS: StaticSampler, S: Sampler, SC: SpanCollection, X: Fn(SC::Exportable) + Send + Sync + 'static
+impl<C, IG, SS, S, SC, X> Tracer for DefaultTracer<C, IG, SS, S, SC, X>
+    where C: Clock, IG: IdGenerator, SS: StaticSampler, S: Sampler, SC: SpanCollection, X: Fn(SC::Exportable) + Send + Sync + 'static
 {
     fn is_enabled(&self, target: Option<&str>, severity: Option<Severity>) -> bool {
         self.static_sampler.is_enabled(target, severity)
@@ -102,8 +109,8 @@ impl<SS, S, SC, X> Tracer for DefaultTracer<SS, S, SC, X>
         // generate ids; extract trace id if there is a parent
         let trace_id = parent_span_context.as_ref()
             .map(|c| c.trace_id)
-            .unwrap_or_else(|| TraceId(NonZeroU128::new(fastrand::u128(1..)).unwrap()));
-        let span_id = SpanId(NonZeroU64::new(fastrand::u64(1..)).unwrap());
+            .unwrap_or_else(|| self.id_generator.new_trace_id());
+        let span_id = self.id_generator.new_span_id();
         // TODO make use of trace flags
 
         let parent_tracing_context = parent.as_ref()
@@ -131,8 +138,9 @@ impl<SS, S, SC, X> Tracer for DefaultTracer<SS, S, SC, X>
         // set default span kind
         args.kind = args.kind.or(self.default_span_kind);
 
+        let opened_at = self.clock.now_unix_nano();
         let span_context = SpanContext{ trace_id, span_id, trace_flags: 1 };
-        let Some(collect_idx) = self.spans.lock().open_span(trace_id, span_id, args).ok() else {
+        let Some(collect_idx) = self.spans.lock().open_span(trace_id, span_id, args, opened_at).ok() else {
             todo!() // out of memory, what to do now?
         };
 
@@ -146,18 +154,16 @@ impl<SS, S, SC, X> Tracer for DefaultTracer<SS, S, SC, X>
     }
 
     fn add_event(&self, span: &RecordingSpanRef, event_args: EventArgs) {
-        let _result = self.spans.lock().add_event(span.collect_idx, event_args); // TODO handle err
+        let occurs_at = self.clock.now_unix_nano();
+        let _result = self.spans.lock().add_event(span.collect_idx, event_args, occurs_at); // TODO handle err
     }
 
     fn set_status(&self, span: &RecordingSpanRef, status: SpanStatus) {
         let _result = self.spans.lock().set_status(span.collect_idx, status); // TODO handle err
     }
 
-    // fn drop_span(&self, span: &RecordingOwnedSpanRef, closed_at: SystemTime, _: &mut PrivateMarker) {
-    //     self.spans.lock().close_span(span.collect_idx, closed_at);
-    // }
-
-    fn drop_span(&self, span: &RecordingSpanRef, dropped_at: SystemTime, _ : &mut PrivateMarker) {
+    fn drop_span(&self, span: &RecordingSpanRef,  _ : &mut PrivateMarker) {
+        let dropped_at = self.clock.now_unix_nano();
         self.spans.lock().drop_span(span.collect_idx, dropped_at, &self.export_sink);
     }
 

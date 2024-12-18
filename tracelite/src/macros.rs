@@ -150,7 +150,7 @@ macro_rules! __new_span {
 macro_rules! span_attributes {
     ($($attrs:tt)*) => {
         {
-            $crate::set_attributes( $crate::__attr_muncher!(@out{} $($attrs)*) )
+            $crate::set_attributes(|| $crate::__attr_muncher!(@out{} $($attrs)*) )
         }
     };
 }
@@ -228,5 +228,5 @@ fn test_macro_expansion(){
 #[test]
 fn test_expand_span_attributes(){
     let foobar = 5;
-    span_attributes!(foo = 2, bar = 3, foobar, %foobar, ?foobar, #foobar, ?foobar = vec![1,2]);
+    span_attributes!(foo = 2, bar = 3, foobar, %foobar, ?foobar, #foobar, ?foobar = [1,2]);
 }

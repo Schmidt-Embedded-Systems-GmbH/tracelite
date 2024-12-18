@@ -13,10 +13,12 @@ impl StaticSampler for EnvStaticSampler {
             for (path, min_severity) in &self.specific_min_severities {
                 if target == path || (path.ends_with("::") && target.starts_with(path)) {
                     // if OFF or less-than min_severity for target
+                    println!("is_enabled {}",*min_severity != None && *min_severity <= Some(severity));
                     return *min_severity != None && *min_severity <= Some(severity);
                 }
             }
         }
+                    println!("is_enabled {}",Some(self.default_min_severity) <= severity );
         Some(self.default_min_severity) <= severity
     }
 }

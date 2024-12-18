@@ -5,6 +5,8 @@
 
 use std::{error::Error, io};
 
+use tracelite::{sampling, Severity};
+
 
 // use tracelite::{debug_event, info_event, warn_event};
 
@@ -68,28 +70,27 @@ async fn foo(arg1: u32, arg2: u32) -> impl std::fmt::Display {
 
 #[tokio::main]
 async fn main(){
-    use tracelite::{DefaultTracerConfig, export};
-    use tracelite::sampling::{AlwaysSampler, EnvStaticSampler};
-    use tracelite::span_collections::OtlpMicroPbConfig; 
+    let (test_clock, test_export) = tracelite::install_tracer_micropb_tokio_test(
+        "trace",
+        ("testing", &[]),
+        std::time::Duration::from_secs(2),
+        sampling::AlwaysSampler{
+            min_recording_severity: Some(Severity::Warn),
+            min_sampling_severity:  Some(Severity::Warn),
+        }
+    );
 
-    let otlp_endpoint = std::env::var("OTLP_ENDPOINT").unwrap();
-
-    DefaultTracerConfig::new(
-        EnvStaticSampler::from_env("RUST_TRACE"),
-        AlwaysSampler,
-        OtlpMicroPbConfig::new("testservice", &[])
-            .build(),
-        export::spawn_tokio_export_task(
-            export::H2GrpcExport::new(&otlp_endpoint).unwrap(),
-            std::time::Duration::from_secs(2),
-        )
-    ).install();
+    test_clock.advance(1000);
 
     let span = new_info_span!("shave_10_yaks");
     tracelite::sync_in_span(span, || {
         let num_shaved = shave_all(10);
 
+        test_clock.advance(2000);
+
         info_event!("return", num_shaved)
     });
     std::thread::sleep(std::time::Duration::new(20, 0));
+
+    println!("{:?}", test_export.requests.lock().await);
 }

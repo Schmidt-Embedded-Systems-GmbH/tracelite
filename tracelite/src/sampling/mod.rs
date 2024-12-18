@@ -24,14 +24,18 @@ pub trait Sampler: Send + Sync + 'static {
     fn should_sample(&self, args: &SpanArgs) -> SamplingResult;
 }
 
-pub struct AlwaysSampler;
+#[derive(Default)]
+pub struct AlwaysSampler {
+    pub min_recording_severity: Option<Severity>,
+    pub min_sampling_severity: Option<Severity>,
+}
 
 impl Sampler for AlwaysSampler {
     fn should_sample(&self, _: &SpanArgs) -> SamplingResult {
         SamplingResult{
             decision: SamplingDecision::RecordAndSample,
-            min_recording_severity: None, // default to parent
-            min_sampling_severity: None, // default to parent
+            min_recording_severity: self.min_recording_severity,
+            min_sampling_severity: self.min_sampling_severity,
         }
     }
 }

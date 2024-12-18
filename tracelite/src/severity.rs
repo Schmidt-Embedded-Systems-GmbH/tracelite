@@ -67,7 +67,8 @@ impl std::fmt::Display for Severity {
     }
 }
 
-pub struct SeverityParseError; // TODO make use of this
+#[derive(Debug)]
+pub struct SeverityParseError;
 
 impl std::str::FromStr for Severity {
     type Err = SeverityParseError;

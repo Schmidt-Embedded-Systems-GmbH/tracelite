@@ -1,11 +1,9 @@
 use crate::tracer::{AttributeListRef, EventArgs, Text, SpanArgs, SpanCollectionIndex, SpanId, SpanKind, SpanStatus, TraceId};
 use crate::{AttributeValue, Exception};
-use opentelemetry_micropb::std::collector_::trace_::v1_ as collector;
+use opentelemetry_micropb::std::collector_::trace_::v1_::{self as collector, ExportTraceServiceRequest};
 use opentelemetry_micropb::std::common_::v1_ as common;
 use opentelemetry_micropb::std::trace_::v1_ as trace;
 use opentelemetry_micropb::std::resource_::v1_ as resource;
-use micropb::MessageEncode;
-use std::io::Write;
 use std::num::NonZeroU32;
 use std::time::SystemTime;
 
@@ -88,7 +86,7 @@ impl OtlpMicroPbConfig {
             config: self,
             spans: vec![],
             free_indicies: vec![],
-            export_data: collector::ExportTraceServiceRequest{ resource_spans: vec![resource_span] },
+            exportable: collector::ExportTraceServiceRequest{ resource_spans: vec![resource_span] },
         }
     }
 
@@ -101,7 +99,7 @@ pub struct OtlpMicroPbSpanCollection {
     config: OtlpMicroPbConfig,
     spans: Vec<Option<trace::Span>>,
     free_indicies: Vec<u32>,
-    export_data: collector::ExportTraceServiceRequest,
+    exportable: ExportTraceServiceRequest,
 }
 
 impl OtlpMicroPbSpanCollection {
@@ -113,12 +111,13 @@ impl OtlpMicroPbSpanCollection {
 }
 
 impl SpanCollection for OtlpMicroPbSpanCollection {
-    type Exportable = Vec<u8>; // serialized ResourceSpans
+    type Exportable = ExportTraceServiceRequest;
 
     fn open_span(&mut self,
         trace_id: TraceId,
         span_id: SpanId,
         args: SpanArgs,
+        opened_at: u64,
     ) -> Result<SpanCollectionIndex, ()> {
         let idx = match self.free_indicies.pop() {
             Some(idx) => idx,
@@ -146,7 +145,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         } else {
             pb_span.kind = trace::Span_::SpanKind::Unspecified;
         }
-        pb_span.start_time_unix_nano = args.opened_at.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
+        pb_span.start_time_unix_nano = opened_at;
         pb_span.attributes = args.attributes.iter().flat_map(map_kv).collect();
         if let Some(status) = args.status {
             pb_span.set_status(map_span_status(status));
@@ -169,11 +168,11 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         span.set_status(map_span_status(status));
     }
 
-    fn add_event(&mut self, idx: SpanCollectionIndex, event: EventArgs) -> Result<(), ()> {
+    fn add_event(&mut self, idx: SpanCollectionIndex, event: EventArgs, occurs_at: u64) -> Result<(), ()> {
         let Some(span) = self.get_open_span_mut(idx) else { return Ok(()) };
         let mut pb_event = trace::Span_::Event::default();
 
-        pb_event.time_unix_nano = event.occurs_at.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
+        pb_event.time_unix_nano = occurs_at;
         pb_event.name = event.name.to_string();
         match event.exception {
             Some(Exception::Error{ object, type_name }) => {
@@ -205,7 +204,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
 
     fn drop_span(&mut self,
         idx: SpanCollectionIndex,
-        dropped_at: SystemTime,
+        dropped_at: u64,
         export: impl Fn(Self::Exportable),
     ) {
         let Some(mut span) = self.spans[idx.1 as usize].take() else {
@@ -215,10 +214,10 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         self.free_indicies.push(idx.1);
 
         if span.end_time_unix_nano == 0 {
-            span.end_time_unix_nano = dropped_at.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
+            span.end_time_unix_nano = dropped_at;
         }
 
-        let export_spans_scope = &mut self.export_data.resource_spans[0].scope_spans[0];
+        let export_spans_scope = &mut self.exportable.resource_spans[0].scope_spans[0];
         export_spans_scope.spans.push(span);
         if let Some(size) = self.config.autoflush_batch_size {
             if export_spans_scope.spans.len() > size as usize {
@@ -228,41 +227,22 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
     }
     
     fn flush(&mut self, export: impl Fn(Self::Exportable)) {
-        struct PbIoWrite(Vec<u8>);
-
-        impl micropb::PbWrite for PbIoWrite {
-            type Error = std::io::Error;
-            fn pb_write(&mut self, data: &[u8]) -> Result<(), Self::Error> {
-                let n = self.0.write(data)?;
-                assert_eq!(n, data.len());
-                Ok(())
-            }
-        }
-
         self.spans.retain_mut(|entry| {
+            // println!("ENTRY {entry:?}");
             if entry.is_none() { return true }
             if entry.as_mut().unwrap().end_time_unix_nano == 0 { return true }
 
-            let export_spans_scope = &mut self.export_data.resource_spans[0].scope_spans[0];
+            let export_spans_scope = &mut self.exportable.resource_spans[0].scope_spans[0];
             export_spans_scope.spans.push(entry.take().unwrap());
             true
         });
 
-        if self.export_data.resource_spans[0].scope_spans[0].spans.is_empty() {
+        if self.exportable.resource_spans[0].scope_spans[0].spans.is_empty() {
             println!("[INFO] tracelite: nothing to export");
             return // no spans to export
         }
 
-        // gRPC framing: 1 byte flag (compressed=0) + 4 byte message length (big endian)
-        let buf = vec![0u8, 0, 0, 0, 0];
-        let mut encoder = micropb::PbEncoder::new(PbIoWrite(buf));
-        self.export_data.encode(&mut encoder).unwrap(); // TODO handle error
-        self.export_data.resource_spans[0].scope_spans[0].spans.clear();
-
-        let mut buf = encoder.into_writer().0;
-        let message_len = buf.len() as u32 - 5;
-        buf[1..5].copy_from_slice(&(message_len).to_be_bytes());
-
-        export(buf);
+        export(self.exportable.clone());
+        self.exportable.resource_spans[0].scope_spans[0].spans.clear();
     }
 }

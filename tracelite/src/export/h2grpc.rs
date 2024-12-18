@@ -1,6 +1,9 @@
 use super::SpanExporter;
+use bytes::{Bytes, BytesMut};
 use http::header::CONTENT_TYPE;
 use http::Method;
+use micropb::MessageEncode;
+use opentelemetry_micropb::std::collector_::trace_::v1_::ExportTraceServiceRequest;
 
 // TODO keep connection open
 // TODO get rid of unwraps
@@ -8,17 +11,6 @@ pub struct H2GrpcExport {
     grpc_method_uri: http::Uri,
     host: String,
     port: u16,
-}
-
-impl SpanExporter for H2GrpcExport {
-    fn export<'a>(&'a self, data: &'a [u8]) -> impl std::future::Future<Output = ()> + Send + 'a {
-        let data = bytes::Bytes::copy_from_slice(data);
-        async {
-            if let Err(err) = self.try_send(data).await {
-                println!("[ERROR] tracelite: failed to export batch: {err}");
-            }
-        }
-    }
 }
 
 impl H2GrpcExport {
@@ -32,8 +24,41 @@ impl H2GrpcExport {
 
         Ok(Self { grpc_method_uri, host, port })
     }
+}
 
-    async fn try_send(&self, data: bytes::Bytes) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+impl SpanExporter<ExportTraceServiceRequest> for H2GrpcExport {
+    fn export<'a>(&'a self, batch: &'a ExportTraceServiceRequest) -> impl std::future::Future<Output = ()> + Send + 'a {
+        // let data = bytes::Bytes::copy_from_slice(data);
+        struct PbIoWrite(BytesMut);
+
+        impl micropb::PbWrite for PbIoWrite {
+            type Error = std::io::Error;
+            fn pb_write(&mut self, data: &[u8]) -> Result<(), Self::Error> {
+                self.0.extend_from_slice(data);
+                Ok(())
+            }
+        }
+
+        // gRPC framing: 1 byte flag (compressed=0) + 4 byte message length (big endian)
+        let mut buf = bytes::BytesMut::new();
+        buf.extend_from_slice(&[0u8, 0, 0, 0, 0]); // NOTE will set message length later
+        let mut encoder = micropb::PbEncoder::new(PbIoWrite(buf));
+        batch.encode(&mut encoder).unwrap(); // TODO handle error
+
+        let mut buf = encoder.into_writer().0;
+        let message_len = buf.len() as u32 - 5;
+        buf[1..5].copy_from_slice(&message_len.to_be_bytes());
+
+        async {
+            if let Err(err) = self.try_send_std(buf.into()).await {
+                println!("[ERROR] tracelite: failed to export batch: {err}");
+            }
+        }
+    }
+}
+
+impl H2GrpcExport {
+    async fn try_send_std(&self, data: Bytes) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut headers = http::HeaderMap::new();
         headers.insert(CONTENT_TYPE, "application/grpc".parse().unwrap());
         headers.insert("te", "trailers".parse().unwrap());
@@ -58,6 +83,7 @@ impl H2GrpcExport {
         req_headers.headers_mut().extend(headers);
             
         let (response, mut stream) = h2.send_request(req_headers, false)?;
+        println!("[DEBUG] tracelite: sending {} bytes of trace data", data.len());
         stream.send_data(data, true)?;
 
         let resp = response.await?;

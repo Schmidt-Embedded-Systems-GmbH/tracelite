@@ -1,9 +1,9 @@
 use crate::tracer::globals;
 use super::SpanExporter;
 
-pub async fn run_tokio_export_loop(
-    mut batch_receiver: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
-    exporter: impl SpanExporter,
+pub async fn run_tokio_export_loop<B>(
+    mut batch_receiver: tokio::sync::mpsc::UnboundedReceiver<B>,
+    exporter: impl SpanExporter<B>,
     tracer_autoflush_interval: std::time::Duration,
 ){
     loop {
@@ -24,11 +24,10 @@ pub async fn run_tokio_export_loop(
     }
 }
 
-pub fn spawn_tokio_export_task(
-    exporter: impl SpanExporter,
+pub fn spawn_tokio_export_task<B: Send + 'static>(
+    exporter: impl SpanExporter<B>,
     tracer_autoflush_interval: std::time::Duration,
-) -> impl Fn(Vec<u8>)
-{
+) -> impl Fn(B) {
     let (batch_sender, batch_receiver) = tokio::sync::mpsc::unbounded_channel();
 
     tokio::spawn(async move {
@@ -37,9 +36,8 @@ pub fn spawn_tokio_export_task(
 
     move |batch| {
         // TODO how to react to dropped receiver?
-        let batch_size = batch.len();
         match batch_sender.send(batch) {
-            Ok(()) => println!("[DEBUG] tracelite: sent batch of size {batch_size} to background worker"),
+            Ok(()) => println!("[DEBUG] tracelite: sent batch to background worker"),
             Err(err) => eprintln!("[ERROR] tracelite: failed to send batch to background worker: {err}")
         }
     }

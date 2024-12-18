@@ -11,7 +11,8 @@ pub trait SpanCollection: Send + Sync + 'static {
     fn open_span(&mut self,
         trace_id: TraceId,
         span_id: SpanId,
-        args: SpanArgs
+        args: SpanArgs,
+        opened_at: u64,
     ) -> Result<SpanCollectionIndex, ()>;
 
     fn set_attributes(&mut self, idx: SpanCollectionIndex, attrs: AttributeListRef) -> Result<(), ()>;
@@ -19,13 +20,13 @@ pub trait SpanCollection: Send + Sync + 'static {
     fn set_status(&mut self, idx: SpanCollectionIndex, status: SpanStatus);
 
 
-    fn add_event(&mut self, idx: SpanCollectionIndex, event: EventArgs) -> Result<(), ()>;
+    fn add_event(&mut self, idx: SpanCollectionIndex, event: EventArgs, occurs_at: u64) -> Result<(), ()>;
 
     fn close_span(&mut self, idx: SpanCollectionIndex, closed_at: SystemTime);
 
     fn drop_span(&mut self,
         idx: SpanCollectionIndex,
-        dropped_at: SystemTime,
+        dropped_at: u64,
         export: impl Fn(Self::Exportable),
     );
 

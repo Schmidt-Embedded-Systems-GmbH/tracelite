@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use std::{num::{NonZeroU128, NonZeroU64}, time::SystemTime};
+use std::num::{NonZeroU128, NonZeroU64};
 use crate::{AttributeValue, Severity};
 
 #[derive(Debug, Clone, Copy)]
@@ -71,7 +71,7 @@ impl<'a> std::fmt::Display for Text<'a> {
     }
 }
 
-// ++++++++++++++++++++ baggege ++++++++++++++++++++
+// ++++++++++++++++++++ baggage ++++++++++++++++++++
 
 pub type BaggageKey = Cow<'static, str>;
 pub type BaggageValue = Cow<'static, str>;
@@ -199,16 +199,11 @@ pub struct RecordingSpanRef {
     pub tracing_context: Option<Arc<TracingContext>>,
 }
 
-// #[derive(Clone)]
-// pub struct RemoteSpanParent {
-//     pub span_context: SpanContext,
-//     pub tracing_context: Option<Arc<TracingContext>>,
-// }
-
 // TODO can we further reduce the size of this thing?
 #[derive(Clone)]
 pub struct LocalSpanRef {
     // if None, is_recording MUST be false
+    // TODO make this non-pub
     pub recording: Option<RecordingSpanRef>,
     is_recording: bool,
     min_recording_level: Option<Severity>,
@@ -230,7 +225,11 @@ impl LocalSpanRef {
         min_recording_level: Option<Severity>,
         min_sampling_level: Option<Severity>,
     ) -> Self {
-        Self{ recording, is_recording: false, min_recording_level, min_sampling_level }
+        Self{ recording, is_recording: true, min_recording_level, min_sampling_level }
+    }
+
+    pub fn as_parent(&self) -> SpanParent {
+        SpanParent::Local(self.clone())
     }
 
     /// if span is not recording, this will still return a recording ancestor
@@ -238,6 +237,9 @@ impl LocalSpanRef {
         Some(self.recording.as_ref()?.span_context)
     }
 
+    pub fn is_recording(&self) -> bool {
+        self.is_recording
+    }
     /// if span is not recording, this will still return the trace-id of a recording ancestor
     pub fn trace_id(&self) -> Option<TraceId> {
         Some(self.span_context()?.trace_id)
@@ -248,12 +250,8 @@ impl LocalSpanRef {
         Some(self.span_context().unwrap().span_id)
     }
 
-    pub fn is_recording(&self) -> bool {
-        self.is_recording
-    }
-
-    pub fn as_parent(&self) -> SpanParent {
-        SpanParent::Local(self.clone())
+    pub fn baggage(&self) -> Option<&BaggageMap> {
+        Some(&self.recording.as_ref()?.tracing_context.as_ref()?.baggage)
     }
 }
 
@@ -314,7 +312,6 @@ pub struct SpanArgs<'a> {
     pub parent: Option<Option<SpanParent>>,
     // NOTE this will only be available to SpanCollection
     pub parent_span_id: Option<SpanId>,
-    pub opened_at: SystemTime,
 
     pub status: Option<SpanStatus<'a>>,
     pub kind: Option<SpanKind>,
@@ -342,7 +339,6 @@ impl<'a> SpanBuilder<'a> {
             severity_sampling_recommendation: None,
             parent: None,
             parent_span_id: None,
-            opened_at: SystemTime::now(),
             kind: None,
             status: None,
             attributes: &[],
@@ -426,13 +422,14 @@ impl std::ops::Deref for OwnedSpanRef {
 
 impl Drop for OwnedSpanRef {
     fn drop(&mut self) {
+        println!("DROPPED {:?}", self.0.is_recording);
         match &self.0 {
             LocalSpanRef{ recording: Some(recording), is_recording: true, .. } => {
                 // span_ref.tracing_context.as_ref()
                 //     .and_then(|ctx| ctx.on_ending.as_ref())
                 //     .map(|on_ending| (on_ending)(span_ref));
                 let tracer = globals::tracer().unwrap();
-                tracer.drop_span(recording, SystemTime::now(), &mut PrivateMarker(()));
+                tracer.drop_span(recording, &mut PrivateMarker(()));
             }
             _ => {}
         }
@@ -459,7 +456,6 @@ pub struct EventArgs<'a> {
     pub name: Text<'a>,
     pub target: Option<&'a str>,
     pub severity: Option<Severity>,
-    pub occurs_at: SystemTime,
     pub exception: Option<Exception<'a>>,
     pub attributes: AttributeListRef<'a>,
     _private: PrivateMarker,
@@ -473,7 +469,6 @@ impl<'a> EventBuilder<'a> {
             name: name.into(),
             target,
             severity,
-            occurs_at: SystemTime::now(),
             exception: None,
             attributes: &[],
             _private: PrivateMarker(()),
@@ -555,17 +550,14 @@ pub trait Tracer: Send + Sync + 'static {
     fn set_attributes(&self, span: &RecordingSpanRef, attrs: AttributeListRef);
     fn add_event(&self, span: &RecordingSpanRef, args: EventArgs);
     fn set_status(&self, span: &RecordingSpanRef, status: SpanStatus);
-    fn drop_span(&self, span: &RecordingSpanRef, dropped_at: SystemTime, _: &mut PrivateMarker);
+    fn drop_span(&self, span: &RecordingSpanRef, _: &mut PrivateMarker);
     fn flush(&self);
 
     fn instrumentation_error(&self, err: InstrumentationError);
 }
 
 impl OwnedSpanRef {
-    pub fn set_attributes<'a, const N: usize>(&self,
-        tracer: &dyn Tracer,
-        attrs: impl FnOnce() -> AttributeList<'a, N>
-    ){
+    pub fn set_attributes<'a, const N: usize>(&self, tracer: &dyn Tracer, attrs: impl FnOnce() -> AttributeList<'a, N>){
         if N == 0 { return }
         if !self.is_recording { return };
         tracer.set_attributes(self.recording.as_ref().unwrap(), &attrs());
@@ -575,10 +567,6 @@ impl OwnedSpanRef {
         if !self.is_recording { return };
         tracer.set_status(self.recording.as_ref().unwrap(), status);
     }
-
-    // pub fn baggage(&self) -> Option<&BaggageMap> {
-    //     self.baggage.as_ref().map(|b| &**b)
-    // }
 }
 
 pub mod globals {
@@ -645,15 +633,15 @@ pub mod globals {
     }
 
     /// NOTE you will likely want to use span_attributes!() instead
-    pub fn set_attributes<'a, const N: usize>(attrs: AttributeList<'a, N>) {
+    pub fn set_attributes<'a, const N: usize>(attrs: impl FnOnce() -> AttributeList<'a, N>) {
         if N == 0 { return }
         let Some(tracer) = tracer().ok() else { return };
         let mut attrs = Some(attrs);
 
         current_span(|span| {
-            span.set_attributes(tracer, || attrs.take().unwrap());
+            span.set_attributes(tracer, attrs.take().unwrap());
         }).ok().unwrap_or_else(|| {
-            let attrs = attrs.take().unwrap();
+            let attrs = (attrs.take().unwrap())();
             let err = InstrumentationError::StrayAttributes(&attrs);
             tracer.instrumentation_error(err);
         });
