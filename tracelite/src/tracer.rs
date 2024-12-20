@@ -557,10 +557,10 @@ pub trait Tracer: Send + Sync + 'static {
 }
 
 impl OwnedSpanRef {
-    pub fn set_attributes<'a, const N: usize>(&self, tracer: &dyn Tracer, attrs: impl FnOnce() -> AttributeList<'a, N>){
+    pub fn set_attributes<'a, const N: usize>(&self, tracer: &dyn Tracer, attrs: AttributeList<'a, N>){
         if N == 0 { return }
         if !self.is_recording { return };
-        tracer.set_attributes(self.recording.as_ref().unwrap(), &attrs());
+        tracer.set_attributes(self.recording.as_ref().unwrap(), &attrs);
     }
 
     pub fn set_status(&self, tracer: &dyn Tracer, status: SpanStatus){
@@ -633,7 +633,7 @@ pub mod globals {
     }
 
     /// NOTE you will likely want to use span_attributes!() instead
-    pub fn set_attributes<'a, const N: usize>(attrs: impl FnOnce() -> AttributeList<'a, N>) {
+    pub fn set_attributes<'a, const N: usize>(attrs: AttributeList<'a, N>) {
         if N == 0 { return }
         let Some(tracer) = tracer().ok() else { return };
         let mut attrs = Some(attrs);
@@ -641,7 +641,7 @@ pub mod globals {
         current_span(|span| {
             span.set_attributes(tracer, attrs.take().unwrap());
         }).ok().unwrap_or_else(|| {
-            let attrs = (attrs.take().unwrap())();
+            let attrs = attrs.take().unwrap();
             let err = InstrumentationError::StrayAttributes(&attrs);
             tracer.instrumentation_error(err);
         });

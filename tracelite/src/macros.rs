@@ -106,7 +106,7 @@ macro_rules! __attr_muncher {
 #[macro_export]
 macro_rules! __new_span {
     ($severity:expr, $name:literal $(,$($rest:tt)*)?) => {
-        if let Some(tracer) = $crate::tracer().ok() {
+        if let Ok(tracer) = $crate::tracer() {
             let target = Some(std::module_path!());
             let severity = $severity;
 
@@ -150,7 +150,7 @@ macro_rules! __new_span {
 macro_rules! span_attributes {
     ($($attrs:tt)*) => {
         {
-            $crate::set_attributes(|| $crate::__attr_muncher!(@out{} $($attrs)*) )
+            $crate::set_attributes($crate::__attr_muncher!(@out{} $($attrs)*) )
         }
     };
 }
@@ -159,7 +159,7 @@ macro_rules! span_attributes {
 #[macro_export]
 macro_rules! __new_event {
     ($severity:expr, $name:literal $(,$($rest:tt)*)?) => {
-        if let Some(tracer) = $crate::tracer().ok() {
+        if let Ok(tracer) = $crate::tracer() {
             let target = Some(std::module_path!());
             let severity = $severity;
 

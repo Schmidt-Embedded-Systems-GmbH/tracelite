@@ -51,6 +51,19 @@ impl<C, IG, SS, S, SC, X> DefaultTracerConfig<C, IG, SS, S, SC, X>
         globals::set_tracer(Box::new(tracer));
     }
 
+    pub fn sampler<S2>(self, sampler: S2) -> DefaultTracerConfig<C, IG, SS, S2, SC, X> {
+        DefaultTracerConfig{
+            clock: self.clock,
+            id_generator: self.id_generator,
+            static_sampler: self.static_sampler,
+            sampler,
+            collection: self.collection,
+            export_sink: self.export_sink,
+            default_span_kind: self.default_span_kind,
+            on_instrumentation_error: self.on_instrumentation_error
+        }
+    }
+
     pub fn default_span_kind(self, kind: SpanKind) -> Self {
         Self{ default_span_kind: Some(kind), ..self }
     }
