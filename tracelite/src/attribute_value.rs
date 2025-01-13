@@ -88,6 +88,23 @@ impl<'a> From<f32    >           for AttributeValue<'a> { fn from(value: f32  ) 
 impl<'a> From<f64    >           for AttributeValue<'a> { fn from(value: f64  ) -> Self { Self::F64 (value as f64) } }
 
 /* From: reference types */
+
+impl<'a> From<&'a ()     >       for AttributeValue<'a> { fn from(value: &'a ()   ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a bool   >       for AttributeValue<'a> { fn from(value: &'a bool ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a char   >       for AttributeValue<'a> { fn from(value: &'a char ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a u8     >       for AttributeValue<'a> { fn from(value: &'a u8   ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a u16    >       for AttributeValue<'a> { fn from(value: &'a u16  ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a u32    >       for AttributeValue<'a> { fn from(value: &'a u32  ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a u64    >       for AttributeValue<'a> { fn from(value: &'a u64  ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a usize  >       for AttributeValue<'a> { fn from(value: &'a usize) -> Self { Self::from(*value) } }
+impl<'a> From<&'a i8     >       for AttributeValue<'a> { fn from(value: &'a i8   ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a i16    >       for AttributeValue<'a> { fn from(value: &'a i16  ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a i32    >       for AttributeValue<'a> { fn from(value: &'a i32  ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a i64    >       for AttributeValue<'a> { fn from(value: &'a i64  ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a isize  >       for AttributeValue<'a> { fn from(value: &'a isize) -> Self { Self::from(*value) } }
+impl<'a> From<&'a f32    >       for AttributeValue<'a> { fn from(value: &'a f32  ) -> Self { Self::from(*value) } }
+impl<'a> From<&'a f64    >       for AttributeValue<'a> { fn from(value: &'a f64  ) -> Self { Self::from(*value) } }
+
 impl<'a> From<&'a str    >          for AttributeValue<'a> { fn from(value: &'a str    ) -> Self { Self::Str(value) } }
 impl<'a> From<&'a String >          for AttributeValue<'a> { fn from(value: &'a String ) -> Self { Self::Str(value.as_str()) } }
 impl<'a> From<&'a [u8]>             for AttributeValue<'a> { fn from(value: &'a [u8]   ) -> Self { Self::Bytes(value) } }
