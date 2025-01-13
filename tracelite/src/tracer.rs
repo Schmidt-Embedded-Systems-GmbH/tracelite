@@ -249,6 +249,12 @@ impl SpanRef {
     //     Self{ references_ancestor: true, ..Self::recording(span_context, collect_idx) }
     // }
 
+    pub fn as_ancestor(&self) -> Self {
+        let mut this = self.clone();
+        this.references_ancestor = true;
+        this
+    }
+
     pub fn as_recording(&self) -> Option<RecordingSpanRef> {
         Some(RecordingSpanRef{ span_context: self.span_context?, collect_idx: self.collect_idx? })
     }
@@ -256,6 +262,7 @@ impl SpanRef {
         (!self.references_ancestor).then(|| self.as_recording()).flatten()
     }
 
+    // TODO remove these methods?
     pub fn is_recording(&self) -> bool {
         self.collect_idx.is_some()
     }
@@ -366,18 +373,16 @@ impl<'a> SpanBuilder<'a> {
 
     fn _start<'b>(mut self, tracer: &dyn Tracer, parent: Option<&SpanRef>, attributes: AttributeList<'b>) -> OwnedSpanRef {
         if let Some(parent) = parent {
-            if parent.scoped_severity_filter.recording.is_none()
-            || self.args.severity.is_none()
-            || self.args.severity < parent.scoped_severity_filter.recording
+            if parent.scoped_severity_filter.recording.is_some()
+            && self.args.severity.is_some()
+            && self.args.severity < parent.scoped_severity_filter.recording
             {
-                if !parent.is_recording() {
-                    let return_span = SpanRef{ references_ancestor: true, ..parent.clone() };
-                    return OwnedSpanRef(return_span)
-                }
+                let return_span = SpanRef{ references_ancestor: true, ..parent.clone() };
+                return OwnedSpanRef(return_span)
             }
 
             if parent.collect_idx.is_none() {
-                // TODO child span with escalating severity?
+                // TODO check if child span has escalating severity?
             }
 
             // set SpanArgs::parent
@@ -451,29 +456,54 @@ impl<'a> SpanBuilder<'a> {
     pub fn on_ending(self, f: impl Fn(&SpanRef) + Send + Sync + 'static) -> Self {
         Self{ on_ending: Some(Arc::new(f)), ..self }
     }
-    pub fn baggage_entry(mut self, key: impl Into<BaggageKey>, value:  impl Into<BaggageValue>) -> Self {
+    pub fn baggage_entry(mut self, key: impl Into<BaggageKey>, value: impl Into<BaggageValue>) -> Self {
         self.baggage_entries.push((key.into(), value.into()));
         self
     }
 }
 
-pub struct OwnedSpanRef(SpanRef);
-
-impl std::ops::Deref for OwnedSpanRef {
-    type Target = SpanRef;
-    fn deref(&self) -> &Self::Target { &self.0 }
+pub struct DisabledSpanBuilder<'a> {
+    parent: Option<Option<&'a SpanRef>>,
 }
 
-impl Drop for OwnedSpanRef {
-    fn drop(&mut self) {
-        if let Some(recording) = self.0.as_recording_current() {
-            // trigger on_ending
-            self.0.tracing_context.as_ref()
-                .and_then(|ctx| ctx.on_ending.as_ref())
-                .map(|on_ending| (on_ending)(&self.0));
+impl<'a> DisabledSpanBuilder<'a> {
+    pub fn new() -> DisabledSpanBuilder<'static> { DisabledSpanBuilder{ parent: None } }
 
-            let tracer = globals::tracer().unwrap();
-            tracer.drop_span(recording, &mut PrivateMarker(()));
+    pub fn no_parent(self) -> Self { 
+        DisabledSpanBuilder{ parent: Some(None) }
+    }
+    pub fn parent<'b>(self, parent: &'b SpanRef) -> DisabledSpanBuilder<'b>
+        where 'a: 'b
+    {
+        DisabledSpanBuilder{ parent: Some(Some(parent)) }
+    }
+
+    pub fn name<'b>(self, _name: impl Into<Text<'b>>) -> Self { self }
+    pub fn status(self, _status: SpanStatus) -> Self { self }
+    pub fn kind(self, _kind: SpanKind) -> Self { self }
+    pub fn on_start(self, _f: impl Fn(&SpanRef) + Send + Sync + 'static) -> Self { self }
+    pub fn on_ending(self, _f: impl Fn(&SpanRef) + Send + Sync + 'static) -> Self { self }
+    pub fn baggage_entry(self, _key: impl Into<BaggageKey>, _value: impl Into<BaggageValue>) -> Self { self }
+
+    fn _start(_tracer: &dyn Tracer, parent: Option<&SpanRef>) -> Option<OwnedSpanRef> {
+        if let Some(parent) = parent {
+            if parent.references_ancestor {
+                None
+            } else {
+                Some(OwnedSpanRef(SpanRef{ references_ancestor: true, ..parent.clone() }))
+            }
+        } else {
+            Some(OwnedSpanRef(SpanRef::disabled()))
+        }
+    }
+
+    pub fn start<'b>(mut self, tracer: &dyn Tracer) -> Option<OwnedSpanRef> {
+        match self.parent.take() {
+            Some(parent) => Self::_start(tracer, parent),
+            None => {
+                globals::current_span(|parent| Self::_start(tracer, Some(parent)))
+                    .unwrap_or_else(|_| Self::_start(tracer, None))
+            }
         }
     }
 }
@@ -585,7 +615,6 @@ pub enum InstrumentationError<'a> {
 
 impl<'a> std::fmt::Display for InstrumentationError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[ERROR] tracelite: instrumentation error: ")?;
         match self {
             Self::StrayAttributes(attr) => write!(f, "stray attributes without target span: {:?}", attr),
             Self::StrayEvent(event_args) => write!(f, "stray event without target span: {:?}", event_args),
@@ -607,6 +636,27 @@ pub trait Tracer: Send + Sync + 'static {
     fn flush(&self);
 
     fn instrumentation_error(&self, err: InstrumentationError);
+}
+
+pub struct OwnedSpanRef(SpanRef);
+
+impl std::ops::Deref for OwnedSpanRef {
+    type Target = SpanRef;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+impl Drop for OwnedSpanRef {
+    fn drop(&mut self) {
+        if let Some(recording) = self.0.as_recording_current() {
+            // trigger on_ending
+            self.0.tracing_context.as_ref()
+                .and_then(|ctx| ctx.on_ending.as_ref())
+                .map(|on_ending| (on_ending)(&self.0));
+
+            let tracer = globals::tracer().unwrap();
+            tracer.drop_span(recording, &mut PrivateMarker(()));
+        }
+    }
 }
 
 impl OwnedSpanRef {

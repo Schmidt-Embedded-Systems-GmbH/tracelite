@@ -116,7 +116,8 @@ macro_rules! __new_span {
                 let mut _span_args = $crate::SpanBuilder::new($crate::Text::from($name), target, severity);
                 Some($crate::__new_span!(@munch(tracer; _span_args) $($($rest)*)?))
             } else {
-                None
+                let mut _span_args = $crate::DisabledSpanBuilder::new();
+                $crate::__new_span!(@munch_disabled(tracer; _span_args) $($($rest)*)?)
             }
         } else {
             None
@@ -132,7 +133,19 @@ macro_rules! __new_span {
     };
     (@munch($tracer:ident; $args:ident) $($attrs:tt)* ) => {
         $args.start($tracer, $crate::attributes!(@out{} $($attrs)*) )
-    }
+    };
+
+    (@munch_disabled($tracer:ident; $args:ident) $setter:ident( $($setter_args:expr),* $(,)? )  $(,$($rest:tt)*)? ) => {
+        {
+            // yes, we need to expand it in this absurd way to allow for use of format_args!()
+            (|_span_args: $crate::DisabledSpanBuilder|{
+                $crate::__new_span!(@munch_disabled($tracer; _span_args) $($($rest)*)?)
+            })($args.$setter($($setter_args),*))
+        }
+    };
+    (@munch_disabled($tracer:ident; $args:ident) $($attrs:tt)* ) => {
+        $args.start($tracer)
+    };
 }
 
 #[macro_export] macro_rules! new_span        { ($($rest:tt)*) => { $crate::__new_span!(None,                           $($rest)*) } }
