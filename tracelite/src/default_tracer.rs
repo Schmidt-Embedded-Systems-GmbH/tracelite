@@ -1,6 +1,6 @@
 use crate::clocks::Clock;
 use crate::id_generators::IdGenerator;
-use crate::sampling::{Sampler, SamplingDecision, StaticSampler};
+use crate::sampling::{Sampler, SamplingDecision, SamplingResult, StaticSampler};
 use crate::span_collections::SpanCollection;
 use crate::spinlock::Spinlock;
 use crate::{tracer::*, Severity};
@@ -91,7 +91,7 @@ impl<C, IG, SS, S, SC, X> Tracer for DefaultTracer<C, IG, SS, S, SC, X>
         self.static_sampler.is_enabled(target, severity)
     }
 
-    fn start_span(&self, mut args: SpanArgs, _: &mut PrivateMarker) -> Option<RecordingSpanRef> {
+    fn start_span(&self, mut args: SpanArgs, _: &mut PrivateMarker) -> Option<(RecordingSpanRef, SamplingResult)> {
         let sampling = self.sampler.should_sample(&args);
         match sampling.decision {
             SamplingDecision::Drop => return None,
@@ -116,7 +116,7 @@ impl<C, IG, SS, S, SC, X> Tracer for DefaultTracer<C, IG, SS, S, SC, X>
             todo!() // out of memory, what to do now?
         };
 
-        Some(RecordingSpanRef{ span_context, collect_idx })
+        Some((RecordingSpanRef{ span_context, collect_idx }, sampling))
     }
 
     fn set_attributes(&self, span: RecordingSpanRef, attrs: AttributeList) {

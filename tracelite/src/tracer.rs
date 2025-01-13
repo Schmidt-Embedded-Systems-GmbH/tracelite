@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::num::{NonZeroU128, NonZeroU64};
+use crate::sampling::SamplingResult;
 use crate::{AttributeValue, Severity};
 
 #[derive(Debug, Clone, Copy)]
@@ -271,9 +272,12 @@ impl SpanRef {
         self.tracing_context.as_ref()
     }
 
-    pub fn overwrite_scoped_severity_filter(self, f: ScopedSeverityFilter) -> Self {
+    //TODO find a better name for this
+    pub fn with_scoped_severity_filter(self, f: ScopedSeverityFilter) -> Self {
         Self{ scoped_severity_filter: f.or(self.scoped_severity_filter), ..self }
     }
+
+    //TODO find a better name for this
     pub fn overwrite_tracing_context(self, t: Option<Arc<TracingContext>>) -> Self {
         Self{ tracing_context: t, ..self }
     }
@@ -389,7 +393,10 @@ impl<'a> SpanBuilder<'a> {
 
         // create new SpanRef
         let mut span_ref = match tracer.start_span(SpanArgs{ attributes, ..self.args }, &mut PrivateMarker(())) {
-            Some(s) => SpanRef::recording(s),
+            Some((recording_ref, sampling)) => {
+                let filter = ScopedSeverityFilter{ recording: sampling.min_recording_severity, sampling: sampling.min_sampling_severity };
+                SpanRef::recording(recording_ref).with_scoped_severity_filter(filter)
+            }
             None => match parent {
                 Some(p) => SpanRef{ references_ancestor: true, ..p.clone() },
                 None => SpanRef::disabled()
@@ -594,7 +601,7 @@ impl<'a> std::fmt::Display for InstrumentationError<'a> {
 pub trait Tracer: Send + Sync + 'static {
     fn is_location_enabled(&self, target: Option<&'static str>, severity: Option<Severity>) -> bool;
 
-    fn start_span(&self, args: SpanArgs, _: &mut PrivateMarker) -> Option<RecordingSpanRef>;
+    fn start_span(&self, args: SpanArgs, _: &mut PrivateMarker) -> Option<(RecordingSpanRef, SamplingResult)>;
     fn set_attributes(&self, span: RecordingSpanRef, attrs: AttributeList);
     fn add_event(&self, span: RecordingSpanRef, args: EventArgs, _: &mut PrivateMarker);
     fn set_status(&self, span: RecordingSpanRef, status: SpanStatus);
