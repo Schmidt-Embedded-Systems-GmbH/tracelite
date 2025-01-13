@@ -10,21 +10,21 @@ macro_rules! __attr_key {
 }
 
 #[macro_export]
-macro_rules! __attr_muncher {
+macro_rules! attributes {
 
     /* initial case or trailing-comma case */
     (@out{ $(, $out:expr)* } , $($rest:tt)*) => {
-        $crate::__attr_muncher!( @out{ $(, $out)* } $($rest)* )
+        $crate::attributes!( @out{ $(, $out)* } $($rest)* )
     };
 
     /* final case (emits $out) */
     (@out{ $(, $out:expr)* } ) => {
-        [ $($out),* ]
+        $crate::AttributeList(&[ $($out),* ])
     };
 
     /* from display */
     (@out{ $(, $out:expr)* } % $key:tt = $val:expr $(, $($rest:tt)* )? ) => {
-        $crate::__attr_muncher!(
+        $crate::attributes!(
             @out{
                 , ($crate::__attr_key!($key), $crate::AttributeValue::display(&$val))
                 $(, $out)* 
@@ -33,7 +33,7 @@ macro_rules! __attr_muncher {
         )
     };
     (@out{ $(, $out:expr)* } % $var:ident $(, $($rest:tt)* )? ) => {
-        $crate::__attr_muncher!(
+        $crate::attributes!(
             @out{
                 , ($crate::__attr_key!($var), $crate::AttributeValue::display(&$var))
                 $(, $out)* 
@@ -44,7 +44,7 @@ macro_rules! __attr_muncher {
 
     /* from debug */
     (@out{ $(, $out:expr)* } ? $key:tt = $val:expr $(, $($rest:tt)* )? ) => {
-        $crate::__attr_muncher!(
+        $crate::attributes!(
             @out{
                 , ($crate::__attr_key!($key), $crate::AttributeValue::debug(&$val))
                 $(, $out)* 
@@ -53,7 +53,7 @@ macro_rules! __attr_muncher {
         )
     };
     (@out{ $(, $out:expr)* } ? $var:ident $(, $($rest:tt)* )? ) => {
-        $crate::__attr_muncher!(
+        $crate::attributes!(
             @out{
                 , ($crate::__attr_key!($var), $crate::AttributeValue::debug(&$var))
                 $(, $out)* 
@@ -64,7 +64,7 @@ macro_rules! __attr_muncher {
 
     /* from serialize */
     (@out{ $(, $out:expr)* } # $key:tt = $val:expr $(, $($rest:tt)* )? ) => {
-        $crate::__attr_muncher!(
+        $crate::attributes!(
             @out{
                 , ($crate::__attr_key!($key), $crate::AttributeValue::serialize(&$val))
                 $(, $out)* 
@@ -73,7 +73,7 @@ macro_rules! __attr_muncher {
         )
     };
     (@out{ $(, $out:expr)* } # $var:ident $(, $($rest:tt)* )? ) => {
-        $crate::__attr_muncher!(
+        $crate::attributes!(
             @out{
                 , ($crate::__attr_key!($var), $crate::AttributeValue::serialize(&$var))
                 $(, $out)* 
@@ -84,7 +84,7 @@ macro_rules! __attr_muncher {
 
     /* from value */
     (@out{ $(, $out:expr)* } $key:tt = $val:expr $(, $($rest:tt)* )? ) => {
-        $crate::__attr_muncher!(
+        $crate::attributes!(
             @out{
                 , ($crate::__attr_key!($key), $crate::AttributeValue::from($val))
                 $(, $out)* 
@@ -93,7 +93,7 @@ macro_rules! __attr_muncher {
         )
     };
     (@out{ $(, $out:expr)* } $var:ident $(, $($rest:tt)* )? ) => {
-        $crate::__attr_muncher!(
+        $crate::attributes!(
             @out{
                 , ($crate::__attr_key!($var), $crate::AttributeValue::from($var))
                 $(, $out)* 
@@ -101,16 +101,19 @@ macro_rules! __attr_muncher {
             $( $($rest)* )?
         )
     };
+    ($($attrs:tt)*) => {
+        $crate::attributes!(@out{} $($attrs)*)
+    }
 }
 
 #[macro_export]
 macro_rules! __new_span {
-    ($severity:expr, $name:literal $(,$($rest:tt)*)?) => {
+    ($severity:expr, $name:expr $(,$($rest:tt)*)?) => {
         if let Ok(tracer) = $crate::tracer() {
             let target = Some(std::module_path!());
             let severity = $severity;
 
-            if tracer.is_enabled(target, severity) {
+            if tracer.is_location_enabled(target, severity) {
                 let mut _span_args = $crate::SpanBuilder::new($crate::Text::from($name), target, severity);
                 Some($crate::__new_span!(@munch(tracer; _span_args) $($($rest)*)?))
             } else {
@@ -129,28 +132,28 @@ macro_rules! __new_span {
         }
     };
     (@munch($tracer:ident; $args:ident) $($attrs:tt)* ) => {
-        $args.start($tracer, $crate::__attr_muncher!(@out{} $($attrs)*) )
+        $args.start($tracer, $crate::attributes!(@out{} $($attrs)*) )
     }
 }
 
-#[macro_export] macro_rules! new_span        { ($name:literal $($rest:tt)*) => { $crate::__new_span!(None, $name $($rest)*) } }
-#[macro_export] macro_rules! new_trace_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Trace ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_trace2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Trace ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_debug_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Debug ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_debug2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Debug2), $name $($rest)*) } }
-#[macro_export] macro_rules! new_info_span   { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Info  ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_info2_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Info2 ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_warn_span   { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Warn  ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_warn2_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Warn2 ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_error_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Error ), $name $($rest)*) } }
-#[macro_export] macro_rules! new_error2_span { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Error2), $name $($rest)*) } }
-#[macro_export] macro_rules! new_fatal_span  { ($name:literal $($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Fatal ), $name $($rest)*) } }
+#[macro_export] macro_rules! new_span        { ($($rest:tt)*) => { $crate::__new_span!(None,                           $($rest)*) } }
+#[macro_export] macro_rules! new_trace_span  { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Trace ), $($rest)*) } }
+#[macro_export] macro_rules! new_trace2_span { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Trace ), $($rest)*) } }
+#[macro_export] macro_rules! new_debug_span  { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Debug ), $($rest)*) } }
+#[macro_export] macro_rules! new_debug2_span { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Debug2), $($rest)*) } }
+#[macro_export] macro_rules! new_info_span   { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Info  ), $($rest)*) } }
+#[macro_export] macro_rules! new_info2_span  { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Info2 ), $($rest)*) } }
+#[macro_export] macro_rules! new_warn_span   { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Warn  ), $($rest)*) } }
+#[macro_export] macro_rules! new_warn2_span  { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Warn2 ), $($rest)*) } }
+#[macro_export] macro_rules! new_error_span  { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Error ), $($rest)*) } }
+#[macro_export] macro_rules! new_error2_span { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Error2), $($rest)*) } }
+#[macro_export] macro_rules! new_fatal_span  { ($($rest:tt)*) => { $crate::__new_span!(Some($crate::Severity::Fatal ), $($rest)*) } }
 
 #[macro_export]
 macro_rules! span_attributes {
     ($($attrs:tt)*) => {
         {
-            $crate::set_attributes($crate::__attr_muncher!(@out{} $($attrs)*) )
+            $crate::set_attributes($crate::attributes!(@out{} $($attrs)*) )
         }
     };
 }
@@ -163,7 +166,7 @@ macro_rules! __new_event {
             let target = Some(std::module_path!());
             let severity = $severity;
 
-            if tracer.is_enabled(target, severity) {
+            if tracer.is_location_enabled(target, severity) {
                 let mut _event_args = $crate::EventBuilder::new($crate::Text::from($name), target, severity);
                 $crate::__new_event!(@munch(tracer; _event_args) $($($rest)*)?);
             }
@@ -176,7 +179,7 @@ macro_rules! __new_event {
         })($args.$setter($($setter_args),*))
     };
     (@munch($tracer:ident; $args:ident) $($attrs:tt)* ) => {
-        $args.add_to_current_span($tracer, $crate::__attr_muncher!(@out{} $($attrs)*) );
+        $args.add_to_current_span($tracer, $crate::attributes!(@out{} $($attrs)*) );
     }
 }
 

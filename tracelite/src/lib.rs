@@ -29,7 +29,7 @@ mod macros;
 
 pub fn install_tracer_micropb_tokio_h2grpc(
     env_var: &str,
-    (service_name, service_attributes): (&str, AttributeListRef),
+    (service_name, service_attributes): (&str, AttributeList),
     otlp_endpoint: &str,
     tracer_autoflush_interval: std::time::Duration,
 ){
@@ -58,7 +58,7 @@ use self::export::TestExport;
 
 pub fn install_tracer_micropb_tokio_test(
     rust_trace_env: &str,
-    (service_name, service_attributes): (&str, AttributeListRef),
+    (service_name, service_attributes): (&str, AttributeList),
     tracer_autoflush_interval: std::time::Duration,
     sampler: impl Sampler,
 ) -> (TestClock, TestExport) {

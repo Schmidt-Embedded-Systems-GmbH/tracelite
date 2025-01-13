@@ -1,7 +1,7 @@
 mod otlp_micropb;
 pub use otlp_micropb::{OtlpMicroPbConfig, OtlpMicroPbSpanCollection};
 
-use crate::{AttributeListRef, EventArgs, SpanArgs, SpanCollectionIndex, SpanId, SpanStatus, TraceId};
+use crate::{AttributeList, EventArgs, SpanArgs, SpanCollectionIndex, SpanId, SpanStatus, TraceId};
 use std::time::SystemTime;
 
 // no direct relation to Tracer, but is used by DefaultTracer
@@ -15,7 +15,7 @@ pub trait SpanCollection: Send + Sync + 'static {
         opened_at: u64,
     ) -> Result<SpanCollectionIndex, ()>;
 
-    fn set_attributes(&mut self, idx: SpanCollectionIndex, attrs: AttributeListRef) -> Result<(), ()>;
+    fn set_attributes(&mut self, idx: SpanCollectionIndex, attrs: AttributeList) -> Result<(), ()>;
 
     fn set_status(&mut self, idx: SpanCollectionIndex, status: SpanStatus);
 

@@ -72,7 +72,7 @@ async fn foo(arg1: u32, arg2: u32) -> impl std::fmt::Display {
 async fn main(){
     let (test_clock, test_export) = tracelite::install_tracer_micropb_tokio_test(
         "trace",
-        ("testing", &[]),
+        ("testing", tracelite::AttributeList(&[])),
         std::time::Duration::from_secs(2),
         sampling::AlwaysSampler{
             min_recording_severity: Some(Severity::Warn),

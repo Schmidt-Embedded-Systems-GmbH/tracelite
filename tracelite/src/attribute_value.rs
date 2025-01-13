@@ -4,6 +4,7 @@ use std::fmt::{Debug, Display};
 
 
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub enum AttributeValue<'a> {
     // attribute can be dropped
     NotPresent,
@@ -17,7 +18,7 @@ pub enum AttributeValue<'a> {
     // I128(i128),
     // U128(u128),
 
-    Str(&'a str),
+    Str(&'a str), // TODO use Text?
     Bytes(&'a [u8]),
 
     DynDisplay(&'a dyn Display),

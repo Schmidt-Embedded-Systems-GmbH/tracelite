@@ -1,4 +1,4 @@
-use crate::tracer::{AttributeListRef, EventArgs, Text, SpanArgs, SpanCollectionIndex, SpanId, SpanKind, SpanStatus, TraceId};
+use crate::tracer::{AttributeList, EventArgs, Text, SpanArgs, SpanCollectionIndex, SpanId, SpanKind, SpanStatus, TraceId};
 use crate::{AttributeValue, Exception};
 use opentelemetry_micropb::std::collector_::trace_::v1_::{self as collector, ExportTraceServiceRequest};
 use opentelemetry_micropb::std::common_::v1_ as common;
@@ -62,11 +62,11 @@ pub struct OtlpMicroPbConfig {
 }
 
 impl OtlpMicroPbConfig {
-    pub fn new(service_name: &str, resource_attrs: AttributeListRef) -> Self {
+    pub fn new(service_name: &str, resource_attrs: AttributeList) -> Self {
         let mut resource = resource::Resource::default();
 
         resource.attributes = [("service.name".into(), AttributeValue::from(service_name))].iter()
-            .chain(resource_attrs)
+            .chain(resource_attrs.0)
             .flat_map(map_kv)
             .collect();
 
@@ -132,7 +132,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         // TODO should we use little-endian bytes?
         pb_span.trace_id = trace_id.0.get().to_be_bytes().into_iter().collect();
         pb_span.span_id = span_id.0.get().to_be_bytes().into_iter().collect();
-        pb_span.parent_span_id = args.parent_span_id.map(|id| id.0.get().to_be_bytes().into_iter().collect()).unwrap_or_default();
+        pb_span.parent_span_id = args.parent.map(|p| p.span_id.0.get().to_be_bytes().into_iter().collect()).unwrap_or_default();
         pb_span.name = args.name.to_string();
         if let Some(kind) = args.kind {
             pb_span.kind = match kind {
@@ -146,7 +146,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
             pb_span.kind = trace::Span_::SpanKind::Unspecified;
         }
         pb_span.start_time_unix_nano = opened_at;
-        pb_span.attributes = args.attributes.iter().flat_map(map_kv).collect();
+        pb_span.attributes = args.attributes.0.iter().flat_map(map_kv).collect();
         if let Some(status) = args.status {
             pb_span.set_status(map_span_status(status));
         }
@@ -157,9 +157,9 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
         Ok(SpanCollectionIndex(NonZeroU32::MIN, idx))
     }
 
-    fn set_attributes(&mut self, idx: SpanCollectionIndex, attrs: AttributeListRef) -> Result<(), ()> {
+    fn set_attributes(&mut self, idx: SpanCollectionIndex, attrs: AttributeList) -> Result<(), ()> {
         let Some(span) = self.get_open_span_mut(idx) else { return Ok(()) };
-        span.attributes.extend(attrs.iter().flat_map(map_kv));
+        span.attributes.extend(attrs.0.iter().flat_map(map_kv));
         Ok(())
     }
 
@@ -191,7 +191,7 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
             }
             None => {}
         }
-        pb_event.attributes.extend(event.attributes.iter().flat_map(map_kv));
+        pb_event.attributes.extend(event.attributes.0.iter().flat_map(map_kv));
 
         span.events.push(pb_event);
         Ok(())
