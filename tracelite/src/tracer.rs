@@ -344,8 +344,6 @@ pub struct SpanBuilder<'a> {
 }
 
 impl<'a> SpanBuilder<'a> {
-    // NOTE severity is not a setable field because as tokio tracing discussions revealed, having 
-    //      a default severity (log level) is a bad idea - some assume the default to be INFO, others TRACE
     pub fn new(name: impl Into<Text<'a>>, target: Option<&'static str>, severity: Option<Severity>) -> Self {
         let name = name.into();
         Self{

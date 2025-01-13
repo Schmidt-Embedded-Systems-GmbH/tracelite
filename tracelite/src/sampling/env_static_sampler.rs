@@ -36,23 +36,30 @@ impl EnvStaticSampler {
                 default_min_severity = sev;
             }
             
-            let Some((path, sev_text)) = entry.split_once("=") else {
-                eprintln!("[ERROR] tracelite: malformed RUST_TRACE entry: field does not follow format: {entry}");
-                continue
-            };
+            match entry.split_once("=") {
+                Some((path, sev_text)) => {
+                    let sev = if sev_text.eq_ignore_ascii_case("off") {
+                        None
+                    } else {
+                        let Ok(sev) = sev_text.parse::<Severity>() else {
+                            eprintln!("[ERROR] tracelite: malformed RUST_TRACE entry (invalid severity): {sev_text}");
+                            continue
+                        };
+                        Some(sev)
+                    };
 
-            let sev = if sev_text.eq_ignore_ascii_case("off") {
-                None
-            } else {
-                let Ok(sev) = sev_text.parse::<Severity>() else {
-                    eprintln!("[ERROR] tracelite: malformed RUST_TRACE entry; invalid severity: {sev_text}");
-                    continue
-                };
-                Some(sev)
-            };
+                    specific_min_severities.push((path.to_owned(), sev));
+                    specific_min_severities.push((format!("{path}::"), sev));
+                }
+                None => {
+                    let Ok(sev) = entry.parse::<Severity>() else {
+                        eprintln!("[ERROR] tracelite: malformed RUST_TRACE entry (must be `${{PATH}}=${{SEV}}` or just `${{SEV}}`): {entry}");
+                        continue
+                    };
 
-            specific_min_severities.push((path.to_owned(), sev));
-            specific_min_severities.push((format!("{path}::"), sev));
+                    default_min_severity = sev;
+                }
+            }
         }
 
         // NOTE sorts in reverse by path
