@@ -639,7 +639,7 @@ impl std::ops::Deref for OwnedSpanRef {
 
 impl Drop for OwnedSpanRef {
     fn drop(&mut self) {
-        if let Some(recording) = self.0.as_recording_self_or_ancestor() {
+        if let Some(recording) = self.0.as_recording_self() {
             // trigger on_ending
             self.0.tracing_context.as_ref()
                 .and_then(|ctx| ctx.on_ending.as_ref())
