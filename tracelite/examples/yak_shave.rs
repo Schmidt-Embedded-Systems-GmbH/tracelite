@@ -74,10 +74,7 @@ async fn main(){
         "trace",
         ("testing", tracelite::AttributeList(&[])),
         std::time::Duration::from_secs(2),
-        sampling::AlwaysSampler{
-            min_recording_severity: Some(Severity::Warn),
-            min_sampling_severity:  Some(Severity::Warn),
-        }
+        sampling::AlwaysSampler,
     );
 
     test_clock.advance(1000);

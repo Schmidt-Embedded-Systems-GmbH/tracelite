@@ -10,7 +10,6 @@ macro_rules! __attr_key {
 
 #[macro_export]
 macro_rules! attributes {
-
     /* initial case or trailing-comma case */
     (@out{ $(, $out:expr)* } , $($rest:tt)*) => {
         $crate::attributes!( @out{ $(, $out)* } $($rest)* )
@@ -112,7 +111,7 @@ macro_rules! __new_span {
             let target = Some(std::module_path!());
             let severity = $severity;
 
-            if tracer.is_location_enabled(target, severity) {
+            if tracer.is_enabled(target, severity) {
                 let mut _span_args = $crate::SpanBuilder::new($crate::Text::from($name), target, severity);
                 Some($crate::__new_span!(@munch(tracer; _span_args) $($($rest)*)?))
             } else {
@@ -178,7 +177,7 @@ macro_rules! __new_event {
             let target = Some(std::module_path!());
             let severity = $severity;
 
-            if tracer.is_location_enabled(target, severity) {
+            if tracer.is_enabled(target, severity) {
                 let mut _event_args = $crate::EventBuilder::new($crate::Text::from($name), target, severity);
                 $crate::__new_event!(@munch(tracer; _event_args) $($($rest)*)?);
             }

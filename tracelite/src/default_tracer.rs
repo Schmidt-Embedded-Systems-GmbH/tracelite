@@ -87,11 +87,11 @@ pub struct DefaultTracer<C, IG, SS, S, SC, X> {
 impl<C, IG, SS, S, SC, X> Tracer for DefaultTracer<C, IG, SS, S, SC, X>
     where C: Clock, IG: IdGenerator, SS: StaticSampler, S: Sampler, SC: SpanCollection, X: Fn(SC::Exportable) + Send + Sync + 'static
 {
-    fn is_location_enabled(&self, target: Option<&str>, severity: Option<Severity>) -> bool {
+    fn is_enabled(&self, target: Option<&str>, severity: Option<Severity>) -> bool {
         self.static_sampler.is_enabled(target, severity)
     }
 
-    fn start_span(&self, mut args: SpanArgs, _: &mut PrivateMarker) -> Option<(RecordingSpanRef, SamplingResult)> {
+    fn start_span(&self, mut args: SpanArgs, _: &mut PrivateMarker) -> Option<(RecordingSpanContext, SamplingResult)> {
         let sampling = self.sampler.should_sample(&args);
         match sampling.decision {
             SamplingDecision::Drop => return None,
@@ -116,23 +116,23 @@ impl<C, IG, SS, S, SC, X> Tracer for DefaultTracer<C, IG, SS, S, SC, X>
             todo!() // out of memory, what to do now?
         };
 
-        Some((RecordingSpanRef{ span_context, collect_idx }, sampling))
+        Some((RecordingSpanContext{ span_context, collect_idx }, sampling))
     }
 
-    fn set_attributes(&self, span: RecordingSpanRef, attrs: AttributeList) {
+    fn set_attributes(&self, span: RecordingSpanContext, attrs: AttributeList) {
         let _result = self.spans.lock().set_attributes(span.collect_idx, attrs); // TODO handle err
     }
 
-    fn add_event(&self, span: RecordingSpanRef, args: EventArgs, _: &mut PrivateMarker) {
+    fn add_event(&self, span: RecordingSpanContext, args: EventArgs, _: &mut PrivateMarker) {
         let occurs_at = self.clock.now_unix_nano();
         let _result = self.spans.lock().add_event(span.collect_idx, args, occurs_at); // TODO handle err
     }
 
-    fn set_status(&self, span: RecordingSpanRef, status: SpanStatus) {
+    fn set_status(&self, span: RecordingSpanContext, status: SpanStatus) {
         let _result = self.spans.lock().set_status(span.collect_idx, status); // TODO handle err
     }
 
-    fn drop_span(&self, span: RecordingSpanRef, _ : &mut PrivateMarker) {
+    fn drop_span(&self, span: RecordingSpanContext, _ : &mut PrivateMarker) {
         let dropped_at = self.clock.now_unix_nano();
         self.spans.lock().drop_span(span.collect_idx, dropped_at, &self.export_sink);
     }

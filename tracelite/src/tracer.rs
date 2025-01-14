@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::num::{NonZeroU128, NonZeroU64};
-use crate::sampling::SamplingResult;
+use crate::sampling::{DynamicTraceDetail, SamplingDecision, SamplingResult};
 use crate::{AttributeValue, Severity};
 
 #[derive(Debug, Clone, Copy)]
@@ -196,21 +196,6 @@ impl std::str::FromStr for SpanContext {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SpanCollectionIndex(pub NonZeroU32, pub u32);
 
-#[derive(Default, Debug, Clone, Copy)]
-pub struct ScopedSeverityFilter {
-    pub recording: Option<Severity>,
-    pub sampling: Option<Severity>,
-}
-
-impl ScopedSeverityFilter {
-    pub fn or(self, other: Self) -> Self {
-        Self{
-            recording: self.recording.or(other.recording),
-            sampling: self.sampling.or(other.sampling),
-        }
-    }
-}
-
 #[derive(Default, Clone)]
 pub struct TracingContext {
     pub baggage: BaggageMap,
@@ -219,35 +204,31 @@ pub struct TracingContext {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct RecordingSpanRef {
+pub struct RecordingSpanContext {
     pub span_context: SpanContext,
     pub collect_idx: SpanCollectionIndex,
 }
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct SpanRef {
     span_context: Option<SpanContext>,
     collect_idx: Option<SpanCollectionIndex>,
     references_ancestor: bool,
-    scoped_severity_filter: ScopedSeverityFilter,
+    dyn_trace_detail: Option<DynamicTraceDetail>,
     tracing_context: Option<Arc<TracingContext>>,
 }
 
 impl SpanRef {
-    pub fn disabled() -> Self {
-        Self{ span_context: None, collect_idx: None, references_ancestor: false, scoped_severity_filter: Default::default(), tracing_context: None }
-    }
+    pub fn disabled() -> Self { Self::default() }
+
     pub fn remote(span_context: SpanContext) -> Self {
         Self{ span_context: Some(span_context), ..Self::disabled() }
     }
+
     #[doc(hidden)]
-    pub fn recording(rec: RecordingSpanRef) -> Self {
-        Self{ collect_idx: Some(rec.collect_idx), ..Self::remote(rec.span_context) }
+    pub fn recording(span_context: RecordingSpanContext) -> Self {
+        Self{ collect_idx: Some(span_context.collect_idx), ..Self::remote(span_context.span_context) }
     }
-    // #[doc(hidden)]
-    // pub fn recording_ancestor(span_context: SpanContext, collect_idx: SpanCollectionIndex) -> Self {
-    //     Self{ references_ancestor: true, ..Self::recording(span_context, collect_idx) }
-    // }
 
     pub fn as_ancestor(&self) -> Self {
         let mut this = self.clone();
@@ -255,44 +236,41 @@ impl SpanRef {
         this
     }
 
-    pub fn as_recording(&self) -> Option<RecordingSpanRef> {
-        Some(RecordingSpanRef{ span_context: self.span_context?, collect_idx: self.collect_idx? })
+    pub fn recording_self_or_ancestor(&self) -> Option<RecordingSpanContext> {
+        Some(RecordingSpanContext{ span_context: self.span_context?, collect_idx: self.collect_idx? })
     }
-    pub fn as_recording_current(&self) -> Option<RecordingSpanRef> {
-        (!self.references_ancestor).then(|| self.as_recording()).flatten()
+    pub fn recording_self(&self) -> Option<RecordingSpanContext> {
+        if self.references_ancestor { None } else { self.recording_self_or_ancestor() }
     }
 
     // TODO remove these methods?
-    pub fn is_recording(&self) -> bool {
-        self.collect_idx.is_some()
-    }
-    pub fn is_recording_current(&self) -> bool {
-        self.collect_idx.is_some() && !self.references_ancestor
-    }
-    pub fn span_context(&self) -> Option<SpanContext> {
-        self.span_context
-    }
-    pub fn collection_index(&self) -> Option<SpanCollectionIndex> {
-        self.collect_idx
-    }
-    pub fn tracing_context(&self) -> Option<&Arc<TracingContext>> {
-        self.tracing_context.as_ref()
-    }
+    // pub fn is_recording(&self) -> bool {
+    //     self.collect_idx.is_some()
+    // }
+    // pub fn is_recording_current(&self) -> bool {
+    //     self.collect_idx.is_some() && !self.references_ancestor
+    // }
+    // pub fn span_context(&self) -> Option<SpanContext> {
+    //     self.span_context
+    // }
+    // pub fn collection_index(&self) -> Option<SpanCollectionIndex> {
+    //     self.collect_idx
+    // }
+    // pub fn tracing_context(&self) -> Option<&Arc<TracingContext>> {
+    //     self.tracing_context.as_ref()
+    // }
 
-    //TODO find a better name for this
-    pub fn with_scoped_severity_filter(self, f: ScopedSeverityFilter) -> Self {
-        Self{ scoped_severity_filter: f.or(self.scoped_severity_filter), ..self }
-    }
+    // pub fn with_dyn_trace_detail(self, dyn_trace_detail: ScopedSeverityFilter) -> Self {
+    //     Self{ scoped_severity_filter: f.or(self.scoped_severity_filter), ..self }
+    // }
 
-    //TODO find a better name for this
-    pub fn overwrite_tracing_context(self, t: Option<Arc<TracingContext>>) -> Self {
-        Self{ tracing_context: t, ..self }
-    }
+    // pub fn with_trace_context(self, t: Option<Arc<TracingContext>>) -> Self {
+    //     Self{ tracing_context: t, ..self }
+    // }
 }
 
 // ++++++++++++++++++++ spans ++++++++++++++++++++
 
-// todo move to attribute.rs
 #[derive(Debug, Clone, Copy)]
 pub struct AttributeList<'a>(pub &'a [(Text<'a>, AttributeValue<'a>)]);
 
@@ -341,7 +319,6 @@ pub struct SpanArgs<'a> {
     _private: PrivateMarker,
 }
 
-
 pub struct SpanBuilder<'a> {
     args: SpanArgs<'a>,
     parent: Option<Option<&'a SpanRef>>,
@@ -368,63 +345,6 @@ impl<'a> SpanBuilder<'a> {
             on_start: None,
             on_ending: None,
             baggage_entries: vec![],
-        }
-    }
-
-    fn _start<'b>(mut self, tracer: &dyn Tracer, parent: Option<&SpanRef>, attributes: AttributeList<'b>) -> OwnedSpanRef {
-        if let Some(parent) = parent {
-            if parent.scoped_severity_filter.recording.is_some()
-            && self.args.severity.is_some()
-            && self.args.severity < parent.scoped_severity_filter.recording
-            {
-                let return_span = SpanRef{ references_ancestor: true, ..parent.clone() };
-                return OwnedSpanRef(return_span)
-            }
-
-            if parent.collect_idx.is_none() {
-                // TODO check if child span has escalating severity?
-            }
-
-            // set SpanArgs::parent
-            self.args.parent = parent.span_context();
-        }
-
-        // set SpanArgs::status if unset and severity>=Error
-        if self.args.status.is_none() && self.args.severity >= Some(Severity::Error) {
-            self.args.status = Some(SpanStatus::error(self.args.name))
-        }
-
-        // create new SpanRef
-        let mut span_ref = match tracer.start_span(SpanArgs{ attributes, ..self.args }, &mut PrivateMarker(())) {
-            Some((recording_ref, sampling)) => {
-                let filter = ScopedSeverityFilter{ recording: sampling.min_recording_severity, sampling: sampling.min_sampling_severity };
-                SpanRef::recording(recording_ref).with_scoped_severity_filter(filter)
-            }
-            None => match parent {
-                Some(p) => SpanRef{ references_ancestor: true, ..p.clone() },
-                None => SpanRef::disabled()
-            }
-        };
-
-        // build new TracingContext, if necessary
-        if self.on_start.is_some() || self.on_ending.is_some() || !self.baggage_entries.is_empty() {
-            let mut tracing_ctx = span_ref.tracing_context.as_ref().map(|t| (**t).clone()).unwrap_or_default();
-            tracing_ctx.on_start = self.on_start.or(tracing_ctx.on_start);
-            tracing_ctx.on_ending = self.on_ending.or(tracing_ctx.on_ending);
-            tracing_ctx.baggage.extend(self.baggage_entries);
-            span_ref.tracing_context = Some(Arc::new(tracing_ctx));
-        }
-        OwnedSpanRef(span_ref)
-    }
-
-    pub fn start<'b>(mut self, tracer: &dyn Tracer, attributes: AttributeList<'b>) -> OwnedSpanRef {
-        match self.parent.take() {
-            Some(parent) => self._start(tracer, parent, attributes),
-            None => {
-                let mut this = Some(self);
-                globals::current_span(|parent| this.take().unwrap()._start(tracer, Some(parent), attributes))
-                    .unwrap_or_else(|_| this.take().unwrap()._start(tracer, None, attributes))
-            }
         }
     }
 
@@ -460,8 +380,70 @@ impl<'a> SpanBuilder<'a> {
         self.baggage_entries.push((key.into(), value.into()));
         self
     }
+
+    fn _start<'b>(mut self, tracer: &dyn Tracer, parent: Option<&SpanRef>, attributes: AttributeList<'b>) -> OwnedSpanRef {
+        if let Some(parent) = parent {
+            match (parent.dyn_trace_detail, self.args.severity) {
+                (Some(min), Some(sev)) if sev < min.recording_level => {
+                    return OwnedSpanRef(SpanRef{ references_ancestor: true, ..parent.clone() })
+                }
+                _ => {}
+            }
+
+            // copy over parent to SpanArgs
+            self.args.parent = parent.span_context;
+        }
+
+        // set span status to Error if unset and severity>=Error
+        if self.args.status.is_none() && self.args.severity >= Some(Severity::Error) {
+            self.args.status = Some(SpanStatus::error(self.args.name))
+        }
+
+        // start a new span, copy the parent span, or create a disabled root span
+        let mut new_span = match tracer.start_span(SpanArgs{ attributes, ..self.args }, &mut PrivateMarker(())) {
+            Some((new_span, sampling)) => {
+                debug_assert_ne!(sampling.decision, SamplingDecision::Drop);
+                SpanRef{ dyn_trace_detail: sampling.dyn_trace_detail, ..SpanRef::recording(new_span) }
+            }
+            None => match parent {
+                Some(parent) => SpanRef{ references_ancestor: true, ..parent.clone() },
+                None => SpanRef::disabled()
+            }
+        };
+
+        // update TracingContext, if necessary
+        if self.on_start.is_some() || self.on_ending.is_some() || !self.baggage_entries.is_empty() {
+            let mut tracing_ctx = new_span.tracing_context.as_ref()
+                .map(|t| (**t).clone())
+                .unwrap_or_default();
+            tracing_ctx.on_start = self.on_start.or(tracing_ctx.on_start);
+            tracing_ctx.on_ending = self.on_ending.or(tracing_ctx.on_ending);
+            tracing_ctx.baggage.extend(self.baggage_entries);
+            new_span.tracing_context = Some(Arc::new(tracing_ctx));
+        }
+
+        // trigger on_start() 
+        if let Some(on_start) = new_span.tracing_context.as_ref().and_then(|t| t.on_start.as_ref()) {
+            on_start(&new_span);
+        }
+
+        OwnedSpanRef(new_span)
+    }
+
+    #[doc(hidden)]
+    pub fn start<'b>(mut self, tracer: &dyn Tracer, attributes: AttributeList<'b>) -> OwnedSpanRef {
+        match self.parent.take() {
+            Some(parent) => self._start(tracer, parent, attributes),
+            None => {
+                let mut this = Some(self);
+                globals::current_span(|parent| this.take().unwrap()._start(tracer, Some(parent), attributes))
+                    .unwrap_or_else(|_| this.take().unwrap()._start(tracer, None, attributes))
+            }
+        }
+    }
 }
 
+/// Like SpanBuilder, except everything but the parent span information gets discarded
 pub struct DisabledSpanBuilder<'a> {
     parent: Option<Option<&'a SpanRef>>,
 }
@@ -497,6 +479,7 @@ impl<'a> DisabledSpanBuilder<'a> {
         }
     }
 
+    #[doc(hidden)]
     pub fn start<'b>(mut self, tracer: &dyn Tracer) -> Option<OwnedSpanRef> {
         match self.parent.take() {
             Some(parent) => Self::_start(tracer, parent),
@@ -548,14 +531,28 @@ impl<'a> EventBuilder<'a> {
             _private: PrivateMarker(()),
         })
     }
+
+    pub fn exception<'b>(self, object: &'b (impl std::error::Error + 'b)) -> EventBuilder<'b>
+        where 'a: 'b
+    {
+        let type_name = std::any::type_name_of_val(object);
+        EventBuilder(EventArgs{ exception: Some(Exception::Error{ object, type_name }), ..self.0 })
+    }
+
+    pub fn exception_dbgfmt<'b>(self, object: &'b (impl std::fmt::Debug + 'b)) -> EventBuilder<'b>
+        where 'a: 'b
+    {
+        let type_name = std::any::type_name_of_val(object);
+        EventBuilder(EventArgs{ exception: Some(Exception::Dbgfmt{ object, type_name }), ..self.0 })
+    }
     
     #[doc(hidden)]
     pub fn add_to_span<'b>(self, tracer: &dyn Tracer, span: &OwnedSpanRef, attributes: AttributeList<'b>){
-        if span.scoped_severity_filter.recording.is_some()
-        && self.0.severity.is_some()
-        && self.0.severity < span.scoped_severity_filter.recording
-        {
-            return // discard event
+        match (span.dyn_trace_detail, self.0.severity) {
+            (Some(min), Some(sev)) if sev < min.recording_level => {
+                return // discard event
+            }
+            _ => {}
         }
 
         // check if event can be escalated event to ancestor span
@@ -565,7 +562,7 @@ impl<'a> EventBuilder<'a> {
             return
         }
 
-        let recording = span.as_recording().unwrap();
+        let recording = span.recording_self_or_ancestor().unwrap();
 
         // set SpanStatus if severity >= Error
         if self.0.severity >= Some(Severity::Error) {
@@ -588,19 +585,7 @@ impl<'a> EventBuilder<'a> {
         });
     }
 
-    pub fn exception<'b>(self, object: &'b (impl std::error::Error + 'b)) -> EventBuilder<'b>
-        where 'a: 'b
-    {
-        let type_name = std::any::type_name_of_val(object);
-        EventBuilder(EventArgs{ exception: Some(Exception::Error{ object, type_name }), ..self.0 })
-    }
 
-    pub fn exception_dbgfmt<'b>(self, object: &'b (impl std::fmt::Debug + 'b)) -> EventBuilder<'b>
-        where 'a: 'b
-    {
-        let type_name = std::any::type_name_of_val(object);
-        EventBuilder(EventArgs{ exception: Some(Exception::Dbgfmt{ object, type_name }), ..self.0 })
-    }
 }
 
 // ++++++++++++++++++++ Tracer ++++++++++++++++++++
@@ -620,19 +605,19 @@ impl<'a> std::fmt::Display for InstrumentationError<'a> {
             Self::StrayEvent(event_args) => write!(f, "stray event without target span: {:?}", event_args),
             Self::StrayStatus(span_status) => write!(f, "stray span status without target span: {:?}", span_status),
             // TODO rework text to make it more understandable
-            Self::FailedEventEscalation(_span, event_args) => write!(f, "no root span recorded for event with escalating severity: {:?}", event_args),
+            Self::FailedEventEscalation(_span, event_args) => write!(f, "event has escalating severity without any root span: {:?}", event_args),
         }
     }
 }
 
 pub trait Tracer: Send + Sync + 'static {
-    fn is_location_enabled(&self, target: Option<&'static str>, severity: Option<Severity>) -> bool;
+    fn is_enabled(&self, target: Option<&'static str>, severity: Option<Severity>) -> bool;
 
-    fn start_span(&self, args: SpanArgs, _: &mut PrivateMarker) -> Option<(RecordingSpanRef, SamplingResult)>;
-    fn set_attributes(&self, span: RecordingSpanRef, attrs: AttributeList);
-    fn add_event(&self, span: RecordingSpanRef, args: EventArgs, _: &mut PrivateMarker);
-    fn set_status(&self, span: RecordingSpanRef, status: SpanStatus);
-    fn drop_span(&self, span: RecordingSpanRef, _: &mut PrivateMarker);
+    fn start_span(&self, args: SpanArgs, _: &mut PrivateMarker) -> Option<(RecordingSpanContext, SamplingResult)>;
+    fn set_attributes(&self, span: RecordingSpanContext, attrs: AttributeList);
+    fn add_event(&self, span: RecordingSpanContext, args: EventArgs, _: &mut PrivateMarker);
+    fn set_status(&self, span: RecordingSpanContext, status: SpanStatus);
+    fn drop_span(&self, span: RecordingSpanContext, _: &mut PrivateMarker);
     fn flush(&self);
 
     fn instrumentation_error(&self, err: InstrumentationError);
@@ -647,7 +632,7 @@ impl std::ops::Deref for OwnedSpanRef {
 
 impl Drop for OwnedSpanRef {
     fn drop(&mut self) {
-        if let Some(recording) = self.0.as_recording_current() {
+        if let Some(recording) = self.0.recording_self_or_ancestor() {
             // trigger on_ending
             self.0.tracing_context.as_ref()
                 .and_then(|ctx| ctx.on_ending.as_ref())
@@ -662,21 +647,20 @@ impl Drop for OwnedSpanRef {
 impl OwnedSpanRef {
     pub fn set_attributes<'a>(&self, tracer: &dyn Tracer, attrs: AttributeList<'a>){
         if attrs.0.is_empty() { return }
-        if let Some(recording) = self.as_recording_current() {
+        if let Some(recording) = self.recording_self_or_ancestor() {
             tracer.set_attributes(recording, attrs);
         }
     }
 
     pub fn set_status(&self, tracer: &dyn Tracer, status: SpanStatus){
-        if let Some(recording) = self.as_recording_current() {
+        if let Some(recording) = self.recording_self_or_ancestor() {
             tracer.set_status(recording, status);
         }
     }
 }
 
 pub mod globals {
-    use super::{AttributeList, EventBuilder, InstrumentationError, NoCurrentSpan, NoTracerRegistered, OwnedSpanRef, SpanStatus, Text, Tracer};
-    use crate::Severity;
+    use super::{AttributeList, InstrumentationError, NoCurrentSpan, NoTracerRegistered, OwnedSpanRef, SpanStatus, Text, Tracer};
     use tokio::task::futures::TaskLocalFuture;
     use std::future::Future;
 
@@ -773,125 +757,4 @@ pub mod globals {
         set_status(SpanStatus::error(msg));
     }
 
-    pub trait RecordException<E: std::error::Error>: Sized {
-        #[doc(hidden)]
-        fn get_exception(&self) -> Option<&E>;
-
-        #[doc(hidden)]
-        fn _record_error_ext<'a>(self,
-            name: impl Into<Text<'a>>,
-            severity: Option<Severity>,
-        ) -> Self {
-            let Some(tracer) = tracer().ok() else { return self };
-            if !tracer.is_location_enabled(None, severity) { return self; }
-
-            if let Some(ex) = self.get_exception() {
-                EventBuilder::new(name.into(), None, severity)
-                    .exception(ex)
-                    .add_to_current_span(tracer, AttributeList(&[]));
-            }
-            self
-        }
-
-        fn record_error_as_debug<'a>(self, name: impl Into<Text<'a>>) -> Self {
-            self._record_error_ext(name, Some(Severity::Debug))
-        }
-        fn record_error_as_info<'a>(self, name: impl Into<Text<'a>>) -> Self {
-            self._record_error_ext(name, Some(Severity::Info))
-        }
-        fn record_error_as_warn<'a>(self, name: impl Into<Text<'a>>) -> Self {
-            self._record_error_ext(name, Some(Severity::Warn))
-        }
-        fn record_error<'a>(self, name: impl Into<Text<'a>>) -> Self {
-            self._record_error_ext(name, Some(Severity::Error))
-        }
-        fn record_error_as_fatal<'a>(self, name: impl Into<Text<'a>>) -> Self {
-            self._record_error_ext(name, Some(Severity::Fatal))
-        }
-
-        fn record_exception(self) -> Self {
-            self._record_error_ext("exception", None)
-        }
-        fn record_exception_as_trace(self) -> Self {
-            self._record_error_ext("exception", Some(Severity::Trace))
-        }
-        fn record_exception_as_debug(self) -> Self {
-            self._record_error_ext("exception", Some(Severity::Debug))
-        }
-        fn record_exception_as_info(self) -> Self {
-            self._record_error_ext("exception", Some(Severity::Info))
-        }
-        fn record_exception_as_warn(self) -> Self {
-            self._record_error_ext("exception", Some(Severity::Warn))
-        }
-    }
-
-    impl<E: std::error::Error> RecordException<E> for Option<E> {
-        fn get_exception(&self) -> Option<&E> { self.as_ref() }
-    }
-
-    impl<T, E: std::error::Error> RecordException<E> for Result<T, E> {
-        fn get_exception(&self) -> Option<&E> { self.as_ref().err() }
-    }
-
-    pub trait RecordExceptionDebugFmt<E: std::fmt::Debug>: Sized {
-        #[doc(hidden)]
-        fn get_exception(&self) -> Option<&E>;
-
-        #[doc(hidden)]
-        fn _record_error_ext<'a>(self,
-            name: impl Into<Text<'a>>,
-            severity: Option<Severity>,
-        ) -> Self {
-            if let Some(ex) = self.get_exception() {
-                let Some(tracer) = tracer().ok() else { return self };
-                if !tracer.is_location_enabled(None, severity) { return self; }
-
-                EventBuilder::new(name.into(), None, severity)
-                    .exception_dbgfmt(ex)
-                    .add_to_current_span(tracer, AttributeList(&[]));
-            }
-            self
-        }
-
-        fn record_dbgfmt_error_as_debug<'a>(self, name: impl Into<Text<'a>>) -> Self {
-            self._record_error_ext(name, Some(Severity::Debug))
-        }
-        fn record_dbgfmt_error_as_info<'a>(self, name: impl Into<Text<'a>>) -> Self {
-            self._record_error_ext(name, Some(Severity::Info))
-        }
-        fn record_dbgfmt_error_as_warn<'a>(self, name: impl Into<Text<'a>>) -> Self {
-            self._record_error_ext(name, Some(Severity::Warn))
-        }
-        fn record_dbgfmt_error<'a>(self, name: impl Into<Text<'a>>) -> Self {
-            self._record_error_ext(name, Some(Severity::Error))
-        }
-        fn record_dbgfmt_error_as_fatal<'a>(self, name: impl Into<Text<'a>>) -> Self {
-            self._record_error_ext(name, Some(Severity::Fatal))
-        }
-
-        fn record_dbgfmt_exception(self) -> Self {
-            self._record_error_ext("exception", None)
-        }
-        fn record_dbgfmt_exception_as_trace(self) -> Self {
-            self._record_error_ext("exception", Some(Severity::Trace))
-        }
-        fn record_dbgfmt_exception_as_debug(self) -> Self {
-            self._record_error_ext("exception", Some(Severity::Debug))
-        }
-        fn record_dbgfmt_exception_as_info(self) -> Self {
-            self._record_error_ext("exception", Some(Severity::Info))
-        }
-        fn record_dbgfmt_exception_as_warn(self) -> Self {
-            self._record_error_ext("exception", Some(Severity::Warn))
-        }
-    }
-
-    impl<E: std::fmt::Debug> RecordExceptionDebugFmt<E> for Option<E> {
-        fn get_exception(&self) -> Option<&E> { self.as_ref() }
-    }
-
-    impl<T, E: std::fmt::Debug> RecordExceptionDebugFmt<E> for Result<T, E> {
-        fn get_exception(&self) -> Option<&E> { self.as_ref().err() }
-    }
 }

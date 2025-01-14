@@ -9,12 +9,15 @@ mod spinlock;
 mod severity;
 pub use severity::{Severity, SeverityParseError};
 
-mod attribute_value;
-pub use attribute_value::AttributeValue;
+mod attributes;
+pub use attributes::AttributeValue;
 
 mod tracer;
 pub use tracer::*;
 pub use tracer::globals::*;
+
+mod record_exception;
+pub use record_exception::{RecordException, RecordExceptionDebugFmt};
 
 mod default_tracer;
 pub use default_tracer::{DefaultTracer, DefaultTracerConfig};
@@ -35,14 +38,14 @@ pub fn install_tracer_micropb_tokio_h2grpc(
 ){
     use self::clocks::StdClock;
     use self::id_generators::FastrandIdGenerator;
-    use self::sampling::{AlwaysSampler, EnvStaticSampler};
+    use self::sampling::{AlwaysSampler, EnvSampler};
     use self::span_collections::OtlpMicroPbConfig;
 
     DefaultTracerConfig::new(
         StdClock,
         FastrandIdGenerator,
-        EnvStaticSampler::from_env(env_var),
-        AlwaysSampler::default(),
+        EnvSampler::from_env(env_var),
+        AlwaysSampler,
         OtlpMicroPbConfig::new(service_name, service_attributes)
             .build(),
         export::spawn_tokio_export_task(
@@ -62,7 +65,7 @@ pub fn install_tracer_micropb_tokio_test(
     tracer_autoflush_interval: std::time::Duration,
     sampler: impl Sampler,
 ) -> (TestClock, TestExport) {
-    use self::sampling::EnvStaticSampler;
+    use self::sampling::EnvSampler;
     use self::id_generators::TestIdGenerator;
     use self::span_collections::OtlpMicroPbConfig;
 
@@ -72,7 +75,7 @@ pub fn install_tracer_micropb_tokio_test(
     DefaultTracerConfig::new(
         test_clock.clone(),
         TestIdGenerator::default(),
-        EnvStaticSampler::new(Some(rust_trace_env.to_owned())),
+        EnvSampler::new(Some(rust_trace_env.to_owned())),
         sampler,
         OtlpMicroPbConfig::new(service_name, service_attributes)
             .build(),

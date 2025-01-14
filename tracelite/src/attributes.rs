@@ -2,7 +2,6 @@
 use erased_serde::Serialize;
 use std::fmt::{Debug, Display};
 
-
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub enum AttributeValue<'a> {
