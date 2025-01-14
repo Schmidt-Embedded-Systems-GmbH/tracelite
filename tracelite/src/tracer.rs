@@ -236,11 +236,24 @@ impl SpanRef {
         this
     }
 
-    pub fn recording_self_or_ancestor(&self) -> Option<RecordingSpanContext> {
+    pub fn as_recording_self_or_ancestor(&self) -> Option<RecordingSpanContext> {
         Some(RecordingSpanContext{ span_context: self.span_context?, collect_idx: self.collect_idx? })
     }
-    pub fn recording_self(&self) -> Option<RecordingSpanContext> {
-        if self.references_ancestor { None } else { self.recording_self_or_ancestor() }
+    pub fn as_recording_self(&self) -> Option<RecordingSpanContext> {
+        if self.references_ancestor { None } else { self.as_recording_self_or_ancestor() }
+    }
+
+    pub fn has_recording_ancestor(&self) -> bool {
+        self.collect_idx.is_some()
+    }
+    pub fn is_recording(&self) -> bool {
+        !self.references_ancestor && self.collect_idx.is_some()
+    }
+    pub fn span_context(&self) -> Option<SpanContext> {
+        self.span_context
+    }
+    pub fn tracing_context(&self) -> Option<&Arc<TracingContext>> {
+        self.tracing_context.as_ref()
     }
 
     // TODO remove these methods?
@@ -250,14 +263,8 @@ impl SpanRef {
     // pub fn is_recording_current(&self) -> bool {
     //     self.collect_idx.is_some() && !self.references_ancestor
     // }
-    // pub fn span_context(&self) -> Option<SpanContext> {
-    //     self.span_context
-    // }
     // pub fn collection_index(&self) -> Option<SpanCollectionIndex> {
     //     self.collect_idx
-    // }
-    // pub fn tracing_context(&self) -> Option<&Arc<TracingContext>> {
-    //     self.tracing_context.as_ref()
     // }
 
     // pub fn with_dyn_trace_detail(self, dyn_trace_detail: ScopedSeverityFilter) -> Self {
@@ -562,7 +569,7 @@ impl<'a> EventBuilder<'a> {
             return
         }
 
-        let recording = span.recording_self_or_ancestor().unwrap();
+        let recording = span.as_recording_self_or_ancestor().unwrap();
 
         // set SpanStatus if severity >= Error
         if self.0.severity >= Some(Severity::Error) {
@@ -632,7 +639,7 @@ impl std::ops::Deref for OwnedSpanRef {
 
 impl Drop for OwnedSpanRef {
     fn drop(&mut self) {
-        if let Some(recording) = self.0.recording_self_or_ancestor() {
+        if let Some(recording) = self.0.as_recording_self_or_ancestor() {
             // trigger on_ending
             self.0.tracing_context.as_ref()
                 .and_then(|ctx| ctx.on_ending.as_ref())
@@ -647,13 +654,13 @@ impl Drop for OwnedSpanRef {
 impl OwnedSpanRef {
     pub fn set_attributes<'a>(&self, tracer: &dyn Tracer, attrs: AttributeList<'a>){
         if attrs.0.is_empty() { return }
-        if let Some(recording) = self.recording_self_or_ancestor() {
+        if let Some(recording) = self.as_recording_self_or_ancestor() {
             tracer.set_attributes(recording, attrs);
         }
     }
 
     pub fn set_status(&self, tracer: &dyn Tracer, status: SpanStatus){
-        if let Some(recording) = self.recording_self_or_ancestor() {
+        if let Some(recording) = self.as_recording_self_or_ancestor() {
             tracer.set_status(recording, status);
         }
     }
