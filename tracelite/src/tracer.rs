@@ -243,10 +243,10 @@ impl SpanRef {
         if self.references_ancestor { None } else { self.as_recording_self_or_ancestor() }
     }
 
-    pub fn has_recording_ancestor(&self) -> bool {
+    pub fn is_recording_self_or_ancestor(&self) -> bool {
         self.collect_idx.is_some()
     }
-    pub fn is_recording(&self) -> bool {
+    pub fn is_recording_self(&self) -> bool {
         !self.references_ancestor && self.collect_idx.is_some()
     }
     pub fn span_context(&self) -> Option<SpanContext> {
@@ -562,14 +562,13 @@ impl<'a> EventBuilder<'a> {
             _ => {}
         }
 
-        // check if event can be escalated event to ancestor span
-        if span.collect_idx.is_none() {
-            let err = InstrumentationError::FailedEventEscalation(span, self.0);
-            tracer.instrumentation_error(err);
+        let Some(recording) = span.as_recording_self_or_ancestor() else {
+            if self.0.severity >= Some(Severity::Error) {
+                let err = InstrumentationError::FailedErrorEventEscalation(span, self.0);
+                tracer.instrumentation_error(err);
+            }
             return
-        }
-
-        let recording = span.as_recording_self_or_ancestor().unwrap();
+        };
 
         // set SpanStatus if severity >= Error
         if self.0.severity >= Some(Severity::Error) {
@@ -602,7 +601,7 @@ pub enum InstrumentationError<'a> {
     StrayAttributes(AttributeList<'a>),
     StrayEvent(EventArgs<'a>),
     StrayStatus(SpanStatus<'a>),
-    FailedEventEscalation(&'a SpanRef, EventArgs<'a>),
+    FailedErrorEventEscalation(&'a SpanRef, EventArgs<'a>),
 }
 
 impl<'a> std::fmt::Display for InstrumentationError<'a> {
@@ -612,7 +611,7 @@ impl<'a> std::fmt::Display for InstrumentationError<'a> {
             Self::StrayEvent(event_args) => write!(f, "stray event without target span: {:?}", event_args),
             Self::StrayStatus(span_status) => write!(f, "stray span status without target span: {:?}", span_status),
             // TODO rework text to make it more understandable
-            Self::FailedEventEscalation(_span, event_args) => write!(f, "event has escalating severity without any root span: {:?}", event_args),
+            Self::FailedErrorEventEscalation(_span, event_args) => write!(f, "event has escalating severity without any root span: {:?}", event_args),
         }
     }
 }
