@@ -410,7 +410,8 @@ impl<'a> SpanBuilder<'a> {
         let mut new_span = match tracer.start_span(SpanArgs{ attributes, ..self.args }, &mut PrivateMarker(())) {
             Some((new_span, sampling)) => {
                 debug_assert_ne!(sampling.decision, SamplingDecision::Drop);
-                SpanRef{ dyn_trace_detail: sampling.dyn_trace_detail, ..SpanRef::recording(new_span) }
+                let dyn_trace_detail = sampling.dyn_trace_detail.or(parent.as_ref().and_then(|p| p.dyn_trace_detail));
+                SpanRef{ dyn_trace_detail, ..SpanRef::recording(new_span) }
             }
             None => match parent {
                 Some(parent) => SpanRef{ references_ancestor: true, ..parent.clone() },
