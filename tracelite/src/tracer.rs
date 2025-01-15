@@ -428,6 +428,8 @@ impl<'a> SpanBuilder<'a> {
             tracing_ctx.on_ending = self.on_ending.or(tracing_ctx.on_ending);
             tracing_ctx.baggage.extend(self.baggage_entries);
             new_span.tracing_context = Some(Arc::new(tracing_ctx));
+        } else {
+            new_span.tracing_context = parent.as_ref().and_then(|p| p.tracing_context.clone());
         }
 
         // trigger on_start() 
