@@ -92,8 +92,9 @@ impl super::Exporter<ExportTraceServiceRequest> for Exporter {
         buf[1..5].copy_from_slice(&message_len.to_be_bytes());
 
         async {
-            if let Err(err) = self.try_send_std(buf.into()).await {
-                println!("[ERROR] tracelite: failed to export batch: {err}");
+            if let Err(_err) = self.try_send_std(buf.into()).await {
+                #[cfg(feature = "log")]
+                log::error!("failed to export batch: {_err}");
             }
         }
     }
@@ -105,17 +106,25 @@ impl Exporter {
         headers.insert(CONTENT_TYPE, "application/grpc".parse().unwrap());
         headers.insert("te", "trailers".parse().unwrap());
 
-        println!("[DEBUG] tracelite: connecting to host {}:{} for endpoint {}", self.host, self.port, self.grpc_method_uri);
+        #[cfg(feature = "log")]
+        log::info!("connecting to host {}:{} for endpoint {}", self.host, self.port, self.grpc_method_uri);
         if self.port == 4318 {
-            println!("[WARN] tracelite: exporting to port 4318, are you sure? (opentelemetry-collector uses 4317 by-default for gRPC)");
+            #[cfg(feature = "log")]
+            log::warn!("exporting to port 4318, are you sure? (opentelemetry-collector uses 4317 by-default for gRPC)");
         }
 
         let tcp = tokio::net::TcpStream::connect((self.host.as_str(), self.port)).await?;
         let (mut h2, connection) = h2::client::handshake(tcp).await?;
         tokio::spawn(async move {
             match connection.await {
-                Ok(()) => println!("[DEBUG] tracelite: connection established"),
-                Err(err) => println!("[DEBUG] tracelite: connection failure: {err}"),
+                Ok(()) => {
+                    #[cfg(feature = "log")]
+                    log::info!("connection established")
+                }
+                Err(_err) => {
+                    #[cfg(feature = "log")]
+                    log::info!("connection failure: {_err}")
+                }
             }
         });
 
@@ -123,14 +132,17 @@ impl Exporter {
         *req_headers.method_mut() = Method::POST;
         *req_headers.uri_mut() = self.grpc_method_uri.clone();
         req_headers.headers_mut().extend(headers);
+
+        #[cfg(feature = "log")]
+        log::debug!("sending {} bytes of trace data", data.len());
             
         let (response, mut stream) = h2.send_request(req_headers, false)?;
-        println!("[DEBUG] tracelite: sending {} bytes of trace data", data.len());
         stream.send_data(data, true)?;
 
-        let resp = response.await?;
+        let _resp = response.await?;
 
-        println!("[DEBUG] tracelite: received response (status {}) with headers/trailers {:?}", resp.status(), resp.headers());
+        #[cfg(feature = "log")]
+        log::debug!("received response (status {}) with headers/trailers {:?}", _resp.status(), _resp.headers());
 
         Ok(())
     }

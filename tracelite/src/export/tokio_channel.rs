@@ -45,8 +45,14 @@ pub fn spawn_tokio_export_task<B: Send + 'static>(
     move |batch| {
         // TODO how to react to dropped receiver?
         match batch_sender.send(batch) {
-            Ok(()) => println!("[DEBUG] tracelite: sent batch to background worker"),
-            Err(err) => eprintln!("[ERROR] tracelite: failed to send batch to background worker: {err}")
+            Ok(()) => {
+                #[cfg(feature = "log")]
+                log::info!("sent batch to background worker")
+            }
+            Err(_err) => {
+                #[cfg(feature = "log")]
+                log::error!("failed to send batch to background worker: {_err}")
+            }
         }
     }
 }
