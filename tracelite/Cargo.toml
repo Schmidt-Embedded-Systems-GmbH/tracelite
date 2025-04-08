@@ -10,14 +10,18 @@ repository = "https://github.com/Schmidt-Embedded-Systems-GmbH/tracelite"
 default = ["serde", "h2"]
 serde = ["dep:serde", "dep:erased-serde", "dep:serde_json"]
 h2 = ["dep:h2", "dep:http", "dep:bytes"]
-# tokio = ["dep:tokio"]
 
 [dependencies]
 tracelite_macro = { workspace = true }
-fastrand = "2.2" # TODO get rid of this?
-# TODO add feature
 micropb = "0.1"
 opentelemetry-micropb = { version = "0.1.1" }
+fastrand = "2.2"
+
+# ----- internal logging -----
+
+[dependencies.log]
+version = "0.4"
+optional = true
 
 # ----- serde -----
 

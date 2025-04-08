@@ -5,8 +5,8 @@ use tracelite::clocks::TestClock;
 use tracelite::export::{spawn_tokio_export_task, TestExport};
 use tracelite::id_generators::FastrandIdGenerator;
 use tracelite::sampling::{AlwaysSampler, Sampler, SamplingDecision, SamplingResult};
-use tracelite::span_collections::OtlpMicroPbConfig;
-use tracelite::{sampling, AttributeList, AttributeValue, DefaultTracerConfig, Severity};
+use tracelite::span_collections::SpanCollectionConfig;
+use tracelite::{micropb_h2grpc_config, sampling, AttributeList, AttributeValue, DefaultTracerConfig, Severity};
 use std::process::id;
 use std::time::Duration;
 use std::{error::Error, io};
@@ -74,7 +74,7 @@ async fn main(){
         FastrandIdGenerator,
         AlwaysSampler,
         CustomSampler,
-        OtlpMicroPbConfig::new("resource", AttributeList(&[])).build(),
+        SpanCollectionConfig::new("resource", AttributeList(&[])).build(),
         spawn_tokio_export_task(test_export.clone(), Duration::from_secs(5)),
     ).install();
 

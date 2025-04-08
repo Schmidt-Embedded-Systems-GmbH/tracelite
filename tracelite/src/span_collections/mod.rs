@@ -1,8 +1,13 @@
-mod otlp_micropb;
-pub use otlp_micropb::{OtlpMicroPbConfig, OtlpMicroPbSpanCollection};
+pub mod otlp_micropb;
 
 use crate::{AttributeList, EventArgs, SpanArgs, SpanCollectionIndex, SpanId, SpanStatus, TraceId};
 use std::time::SystemTime;
+
+pub trait SpanCollectionConfig {
+    type SpanCollection: SpanCollection;
+    fn new(service_name: &str, service_attrs: AttributeList) -> Self;
+    fn build(self) -> Self::SpanCollection;
+}
 
 // no direct relation to Tracer, but is used by DefaultTracer
 pub trait SpanCollection: Send + Sync + 'static {

@@ -7,52 +7,8 @@ use opentelemetry_micropb::std::resource_::v1_ as resource;
 use std::num::NonZeroU32;
 use std::time::SystemTime;
 
-use super::SpanCollection;
-
-fn map_value(v: &AttributeValue) -> Option<common::AnyValue> {
-    let mut char_buf = [0u8; std::mem::size_of::<char>()];
-
-    let pb_v = match v {
-        AttributeValue::NotPresent => return None,
-
-        AttributeValue::Unit     => common::AnyValue_::Value::StringValue("()".to_owned()),
-
-        AttributeValue::Bool(x)  => common::AnyValue_::Value::BoolValue(*x),
-        AttributeValue::Char(x)  => common::AnyValue_::Value::StringValue(x.encode_utf8(&mut char_buf).to_owned()),
-        AttributeValue::U64(x)   => common::AnyValue_::Value::IntValue(*x as i64), // NOTE unconditional conversion, x>i64::MAX will overflow into negative
-        AttributeValue::I64(x)   => common::AnyValue_::Value::IntValue(*x),
-        AttributeValue::F64(x)   => common::AnyValue_::Value::DoubleValue(*x),
-        AttributeValue::Str(x)   => common::AnyValue_::Value::StringValue((*x).to_owned()),
-        AttributeValue::Bytes(x) => common::AnyValue_::Value::BytesValue((*x).to_owned()),
-
-        AttributeValue::DynDisplay(x)   => common::AnyValue_::Value::StringValue(x.to_string()),
-        AttributeValue::DynDebug(x)     => common::AnyValue_::Value::StringValue(format!("{x:?}")),
-        #[cfg(feature = "serde")]
-        AttributeValue::DynSerialize(x) => common::AnyValue_::Value::StringValue(serde_json::to_string_pretty(x).ok()?), // NOTE serde_json is just a temporary solution
-    };
-    Some(common::AnyValue{ value: Some(pb_v) })
-}
-
-fn map_kv(kv: &(Text, AttributeValue)) -> Option<common::KeyValue> {
-    let mut pb_kv = common::KeyValue::default();
-    pb_kv.key = kv.0.to_string();
-    pb_kv.set_value(map_value(&kv.1)?);
-    Some(pb_kv)
-}
-
-fn map_span_status(status: SpanStatus) -> trace::Status {
-    match status {
-        SpanStatus::Ok => {
-            trace::Status{ code: trace::Status_::StatusCode::Ok, message: "".to_owned() }
-        }
-        SpanStatus::Error(msg) => {
-            trace::Status{ code: trace::Status_::StatusCode::Error, message: msg.to_string() }
-        }
-    }
-}
-
 #[non_exhaustive]
-pub struct OtlpMicroPbConfig {
+pub struct SpanCollectionConfig {
     resource: resource::Resource,
     autoflush_batch_size: Option<u32>,
     // TODO make use of this
@@ -61,8 +17,10 @@ pub struct OtlpMicroPbConfig {
     // max_attributes_per_span: Option<u32>,
 }
 
-impl OtlpMicroPbConfig {
-    pub fn new(service_name: &str, resource_attrs: AttributeList) -> Self {
+impl super::SpanCollectionConfig for SpanCollectionConfig {
+    type SpanCollection = SpanCollection;
+
+    fn new(service_name: &str, resource_attrs: AttributeList) -> Self {
         let mut resource = resource::Resource::default();
 
         resource.attributes = [("service.name".into(), AttributeValue::from(service_name))].iter()
@@ -78,11 +36,11 @@ impl OtlpMicroPbConfig {
         }
     }
 
-    pub fn build(self) -> OtlpMicroPbSpanCollection {
+    fn build(self) -> SpanCollection {
         let mut resource_span = trace::ResourceSpans::default();
         resource_span.set_resource(self.resource.clone()); // TODO build resource in this method
         resource_span.scope_spans = vec![Default::default()];
-        OtlpMicroPbSpanCollection{
+        SpanCollection{
             config: self,
             spans: vec![],
             free_indicies: vec![],
@@ -90,19 +48,20 @@ impl OtlpMicroPbConfig {
         }
     }
 
-    pub fn autoflush_batch_size(self, s: u32) -> Self {
-        Self{ autoflush_batch_size: Some(s), ..self }
-    }
+    // TODO
+    // pub fn autoflush_batch_size(self, s: u32) -> Self {
+    //     Self{ autoflush_batch_size: Some(s), ..self }
+    // }
 }
 
-pub struct OtlpMicroPbSpanCollection {
-    config: OtlpMicroPbConfig,
+pub struct SpanCollection {
+    config: SpanCollectionConfig,
     spans: Vec<Option<trace::Span>>,
     free_indicies: Vec<u32>,
     exportable: ExportTraceServiceRequest,
 }
 
-impl OtlpMicroPbSpanCollection {
+impl SpanCollection {
     fn get_open_span_mut(&mut self, idx: SpanCollectionIndex) -> Option<&mut trace::Span> {
         let span = self.spans.get_mut(idx.1 as usize)?.as_mut()?;
         if span.end_time_unix_nano != 0 { return None }
@@ -110,7 +69,7 @@ impl OtlpMicroPbSpanCollection {
     }
 }
 
-impl SpanCollection for OtlpMicroPbSpanCollection {
+impl super::SpanCollection for SpanCollection {
     type Exportable = ExportTraceServiceRequest;
 
     fn open_span(&mut self,
@@ -244,5 +203,47 @@ impl SpanCollection for OtlpMicroPbSpanCollection {
 
         export(self.exportable.clone());
         self.exportable.resource_spans[0].scope_spans[0].spans.clear();
+    }
+}
+
+fn map_value(v: &AttributeValue) -> Option<common::AnyValue> {
+    let mut char_buf = [0u8; std::mem::size_of::<char>()];
+
+    let pb_v = match v {
+        AttributeValue::NotPresent => return None,
+
+        AttributeValue::Unit     => common::AnyValue_::Value::StringValue("()".to_owned()),
+
+        AttributeValue::Bool(x)  => common::AnyValue_::Value::BoolValue(*x),
+        AttributeValue::Char(x)  => common::AnyValue_::Value::StringValue(x.encode_utf8(&mut char_buf).to_owned()),
+        AttributeValue::U64(x)   => common::AnyValue_::Value::IntValue(*x as i64), // NOTE unconditional conversion, x>i64::MAX will overflow into negative
+        AttributeValue::I64(x)   => common::AnyValue_::Value::IntValue(*x),
+        AttributeValue::F64(x)   => common::AnyValue_::Value::DoubleValue(*x),
+        AttributeValue::Str(x)   => common::AnyValue_::Value::StringValue((*x).to_owned()),
+        AttributeValue::Bytes(x) => common::AnyValue_::Value::BytesValue((*x).to_owned()),
+
+        AttributeValue::DynDisplay(x)   => common::AnyValue_::Value::StringValue(x.to_string()),
+        AttributeValue::DynDebug(x)     => common::AnyValue_::Value::StringValue(format!("{x:?}")),
+        #[cfg(feature = "serde")]
+        AttributeValue::DynSerialize(x) => common::AnyValue_::Value::StringValue(serde_json::to_string_pretty(x).ok()?), // NOTE serde_json is just a temporary solution
+    };
+    Some(common::AnyValue{ value: Some(pb_v) })
+}
+
+fn map_kv(kv: &(Text, AttributeValue)) -> Option<common::KeyValue> {
+    let mut pb_kv = common::KeyValue::default();
+    pb_kv.key = kv.0.to_string();
+    pb_kv.set_value(map_value(&kv.1)?);
+    Some(pb_kv)
+}
+
+fn map_span_status(status: SpanStatus) -> trace::Status {
+    match status {
+        SpanStatus::Ok => {
+            trace::Status{ code: trace::Status_::StatusCode::Ok, message: "".to_owned() }
+        }
+        SpanStatus::Error(msg) => {
+            trace::Status{ code: trace::Status_::StatusCode::Error, message: msg.to_string() }
+        }
     }
 }

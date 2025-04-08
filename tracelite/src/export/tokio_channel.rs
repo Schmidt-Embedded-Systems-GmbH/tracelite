@@ -1,23 +1,31 @@
 use crate::tracer::globals;
-use super::SpanExporter;
+use super::Exporter;
 
 pub async fn run_tokio_export_loop<B>(
     mut batch_receiver: tokio::sync::mpsc::UnboundedReceiver<B>,
-    exporter: impl SpanExporter<B>,
+    exporter: impl Exporter<B>,
     tracer_autoflush_interval: std::time::Duration,
 ){
     loop {
         let autoflush = tokio::time::sleep(tracer_autoflush_interval);
         tokio::select! {
             opt = batch_receiver.recv() => {
-                println!("[DEBUG] tracelite: background worker received batch or dead sender");
                 match opt {
-                    Some(batch) => exporter.export(&batch).await,
-                    None => return // channel senders dropped
+                    Some(batch) => {
+                        #[cfg(feature = "log")]
+                        log::debug!("tokio background worker received batch");
+                        exporter.export(&batch).await
+                    }
+                    None => {
+                        #[cfg(feature = "log")]
+                        log::debug!("tokio background worker has dead sender");
+                        return // channel senders dropped
+                    }
                 }
             }
             _ = autoflush => {
-                println!("[DEBUG] tracelite: background worker performs autoflush");
+                #[cfg(feature = "log")]
+                log::debug!("tokio background worker performs time-based autoflush");
                 globals::tracer().ok().map(|t| t.flush());
             }
         };
@@ -25,7 +33,7 @@ pub async fn run_tokio_export_loop<B>(
 }
 
 pub fn spawn_tokio_export_task<B: Send + 'static>(
-    exporter: impl SpanExporter<B>,
+    exporter: impl Exporter<B>,
     tracer_autoflush_interval: std::time::Duration,
 ) -> impl Fn(B) {
     let (batch_sender, batch_receiver) = tokio::sync::mpsc::unbounded_channel();

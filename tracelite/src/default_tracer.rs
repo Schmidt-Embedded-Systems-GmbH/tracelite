@@ -1,63 +1,96 @@
 use crate::clocks::Clock;
+use crate::export::ExporterConfig;
 use crate::id_generators::IdGenerator;
 use crate::sampling::{Sampler, SamplingDecision, SamplingResult, StaticSampler};
-use crate::span_collections::SpanCollection;
+use crate::span_collections::{SpanCollection, SpanCollectionConfig};
 use crate::spinlock::Spinlock;
 use crate::{tracer::*, Severity};
 
-fn default_instrumentation_error_handler(err: InstrumentationError){
+// TODO pass log
+pub fn default_instrumentation_error_handler(err: InstrumentationError){
     eprintln!("[ERROR] tracelite: instrumentation error: {err}");
 }
 
-pub struct DefaultTracerConfig<C, IG, SS, S, SC, X> {
+pub struct DefaultTracerConfig<C, IG, SS, S, SCC, EC> {
     clock: C,
     id_generator: IG,
     static_sampler: SS,
     sampler: S,
-    collection: SC,
-    export_sink: X,
+    collection: SCC,
+    exporter: EC,
     default_span_kind: Option<SpanKind>,
     on_instrumentation_error: Box<dyn Fn(InstrumentationError) + Send + Sync>
 }
 
-impl<C, IG, SS, S, SC, X> DefaultTracerConfig<C, IG, SS, S, SC, X>
-    where C: Clock, IG: IdGenerator, SS: StaticSampler, S: Sampler, SC: SpanCollection, X: Fn(SC::Exportable) + Send + Sync + 'static
+impl<C, IG, SS, S, SCC, EC> DefaultTracerConfig<C, IG, SS, S, SCC, EC>
+where
+    C: Clock,
+    IG: IdGenerator,
+    SS: StaticSampler,
+    S: Sampler,
+    SCC: SpanCollectionConfig,
+    EC: ExporterConfig<Exportable = <SCC::SpanCollection as SpanCollection>::Exportable>,
 {
-    pub fn new(clock: C, id_generator: IG, static_sampler: SS, sampler: S, collection: SC, export_sink: X) -> Self {
+    pub fn new(clock: C, id_generator: IG, static_sampler: SS, sampler: S, collection: SCC, exporter: EC) -> Self {
         Self{
             clock,
             id_generator,
             static_sampler,
             sampler,
             collection,
-            export_sink,
+            exporter,
             default_span_kind: None,
             on_instrumentation_error: Box::new(default_instrumentation_error_handler),
         }
     }
 
-    pub fn install(self){
-        let tracer = DefaultTracer{
+    pub fn static_sampler<SS2>(self, static_sampler: SS2) -> DefaultTracerConfig<C, IG, SS2, S, SCC, EC> {
+        DefaultTracerConfig{
             clock: self.clock,
             id_generator: self.id_generator,
-            static_sampler: self.static_sampler,
+            static_sampler,
             sampler: self.sampler,
-            spans: Spinlock::new(self.collection),
-            export_sink: self.export_sink,
+            collection: self.collection,
+            exporter: self.exporter,
             default_span_kind: self.default_span_kind,
             on_instrumentation_error: self.on_instrumentation_error
-        };
-        globals::set_tracer(Box::new(tracer));
+        }
     }
-
-    pub fn sampler<S2>(self, sampler: S2) -> DefaultTracerConfig<C, IG, SS, S2, SC, X> {
+    
+    pub fn sampler<S2>(self, sampler: S2) -> DefaultTracerConfig<C, IG, SS, S2, SCC, EC> {
         DefaultTracerConfig{
             clock: self.clock,
             id_generator: self.id_generator,
             static_sampler: self.static_sampler,
             sampler,
             collection: self.collection,
-            export_sink: self.export_sink,
+            exporter: self.exporter,
+            default_span_kind: self.default_span_kind,
+            on_instrumentation_error: self.on_instrumentation_error
+        }
+    }
+
+    pub fn span_collection<SCC2>(self, f: impl FnOnce(SCC) -> SCC2) -> DefaultTracerConfig<C, IG, SS, S, SCC2, EC> {
+        DefaultTracerConfig{
+            clock: self.clock,
+            id_generator: self.id_generator,
+            static_sampler: self.static_sampler,
+            sampler: self.sampler,
+            collection: f(self.collection),
+            exporter: self.exporter,
+            default_span_kind: self.default_span_kind,
+            on_instrumentation_error: self.on_instrumentation_error
+        }
+    }
+
+    pub fn exporter<EC2>(self, f: impl FnOnce(EC) -> EC2) -> DefaultTracerConfig<C, IG, SS, S, SCC, EC2> {
+        DefaultTracerConfig{
+            clock: self.clock,
+            id_generator: self.id_generator,
+            static_sampler: self.static_sampler,
+            sampler: self.sampler,
+            collection: self.collection,
+            exporter: f(self.exporter),
             default_span_kind: self.default_span_kind,
             on_instrumentation_error: self.on_instrumentation_error
         }
@@ -70,11 +103,30 @@ impl<C, IG, SS, S, SC, X> DefaultTracerConfig<C, IG, SS, S, SC, X>
     pub fn on_instrumentation_error(self, f: impl Fn(InstrumentationError) + Send + Sync + 'static) -> Self {
         Self{ on_instrumentation_error: Box::new(f), ..self }
     }
+
+    pub fn install(self){
+        let collection = self.collection.build();
+        let export_sink = self.exporter.build();
+
+        let tracer = DefaultTracer{
+            clock: self.clock,
+            id_generator: self.id_generator,
+            static_sampler: self.static_sampler,
+            sampler: self.sampler,
+            spans: Spinlock::new(collection),
+            export_sink,
+            default_span_kind: self.default_span_kind,
+            on_instrumentation_error: self.on_instrumentation_error,
+        };
+        globals::set_tracer(Box::new(tracer));
+    }
+
+
 }
 
-pub struct DefaultTracer<C, IG, SS, S, SC, X> {
+pub struct DefaultTracer<C, ID, SS, S, SC, X> {
     clock: C,
-    id_generator: IG,
+    id_generator: ID,
     static_sampler: SS,
     sampler: S,
     // NOTE this gets indexed by SpanContext::collect_idx
@@ -84,8 +136,14 @@ pub struct DefaultTracer<C, IG, SS, S, SC, X> {
     on_instrumentation_error: Box<dyn Fn(InstrumentationError) + Send + Sync>
 }
 
-impl<C, IG, SS, S, SC, X> Tracer for DefaultTracer<C, IG, SS, S, SC, X>
-    where C: Clock, IG: IdGenerator, SS: StaticSampler, S: Sampler, SC: SpanCollection, X: Fn(SC::Exportable) + Send + Sync + 'static
+impl<C, ID, SS, S, SC, X> Tracer for DefaultTracer<C, ID, SS, S, SC, X>
+where
+    C: Clock,
+    ID: IdGenerator,
+    SS: StaticSampler,
+    S: Sampler,
+    SC: SpanCollection,
+    X: Fn(SC::Exportable) + Send + Sync + 'static,
 {
     fn is_enabled(&self, target: Option<&str>, severity: Option<Severity>) -> bool {
         self.static_sampler.is_enabled(target, severity)
@@ -113,7 +171,8 @@ impl<C, IG, SS, S, SC, X> Tracer for DefaultTracer<C, IG, SS, S, SC, X>
 
         // create Span in SpanCollection
         let Some(collect_idx) = self.spans.lock().open_span(trace_id, span_id, args, opened_at).ok() else {
-            todo!() // out of memory, what to do now?
+            // TODO out of memory, what to do now?
+            return None
         };
 
         Some((RecordingSpanContext{ span_context, collect_idx }, sampling))
@@ -138,11 +197,14 @@ impl<C, IG, SS, S, SC, X> Tracer for DefaultTracer<C, IG, SS, S, SC, X>
     }
 
     fn flush(&self) {
-        println!("[DEBUG] tracelite: flush");
+        #[cfg(feature = "log")]
+        log::debug!("flush");
         self.spans.lock().flush(&self.export_sink);
     }
 
     fn instrumentation_error(&self, err: InstrumentationError) {
+        #[cfg(feature = "log")]
+        log::error!("instrumentation_error");
         (self.on_instrumentation_error)(err)
     }
 }

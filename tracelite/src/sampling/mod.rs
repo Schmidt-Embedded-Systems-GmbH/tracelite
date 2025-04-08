@@ -42,6 +42,7 @@ pub trait Sampler: Send + Sync + 'static {
     fn should_sample(&self, args: &SpanArgs) -> SamplingResult;
 }
 
+// TODO move into dedicated file
 pub struct AlwaysSampler;
 
 impl StaticSampler for AlwaysSampler{
